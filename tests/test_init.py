@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
 
-def _entry(*, blackout: bool = False) -> MockConfigEntry:
+def _entry(*, blackout: bool | None = False) -> MockConfigEntry:
     """Build a representative USB DMX config entry."""
     return MockConfigEntry(
         domain=DOMAIN,
@@ -39,7 +39,7 @@ def _entry(*, blackout: bool = False) -> MockConfigEntry:
             CONF_DEVICE: "/dev/serial/by-id/dmx-test",
             CONF_INTERFACE_ID: "dmx-test",
         },
-        options={CONF_BLACKOUT_ON_SHUTDOWN: blackout},
+        options=({} if blackout is None else {CONF_BLACKOUT_ON_SHUTDOWN: blackout}),
         unique_id="dmx-test",
     )
 
@@ -192,3 +192,33 @@ async def test_platform_unload_failure_keeps_runtime_connected(
     assert backend.disconnect_calls == 0
     assert backend.frames == []
     assert entry.runtime_data.controller.available
+
+
+async def test_missing_options_default_to_no_shutdown_blackout(
+    hass: HomeAssistant,
+) -> None:
+    """An entry created before options exist closes without sending blackout."""
+    entry = _entry(blackout=None)
+    backend = FakeBackend()
+
+    with (
+        patch(
+            "custom_components.usb_dmx.async_create_backend",
+            AsyncMock(return_value=backend),
+        ),
+        patch.object(
+            hass.config_entries, "async_forward_entry_setups", new=AsyncMock()
+        ),
+    ):
+        await async_setup_entry(hass, entry)
+
+    await entry.runtime_data.controller.async_set_channel(1, 123)
+    with patch.object(
+        hass.config_entries,
+        "async_unload_platforms",
+        AsyncMock(return_value=True),
+    ):
+        assert await async_unload_entry(hass, entry)
+
+    assert backend.frames == [bytes((123,)) + bytes(511)]
+    assert backend.disconnect_calls == 1

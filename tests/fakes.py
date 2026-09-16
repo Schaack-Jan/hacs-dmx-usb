@@ -23,6 +23,8 @@ class FakeBackend(DmxBackend):
         self.connect_calls = 0
         self.connect_failures = 0
         self.connect_failure_after_open = False
+        self.connect_started = asyncio.Event()
+        self.connect_gate: asyncio.Event | None = None
         self.disconnect_calls = 0
         self.reconnect_calls = 0
         self.send_attempts = 0
@@ -38,6 +40,9 @@ class FakeBackend(DmxBackend):
     async def connect(self) -> None:
         """Record a successful connection."""
         self.connect_calls += 1
+        self.connect_started.set()
+        if self.connect_gate is not None:
+            await self.connect_gate.wait()
         if self.connect_failure_after_open:
             self.connected = True
         if self.connect_failures:

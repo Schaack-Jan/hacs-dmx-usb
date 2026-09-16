@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, patch
@@ -97,12 +99,61 @@ async def test_candidate_setup_uses_selector_metadata_and_stable_by_id(
 async def test_manual_path_escape_hatch_creates_entry(
     hass: HomeAssistant,
 ) -> None:
-    """The candidate selector exposes a raw manual-path setup route."""
+    """A raw manual path is replaced by HA's stable by-id path before storage."""
     backend = FakeBackend()
     with (
         patch(
             "custom_components.usb_dmx.config_flow._async_scan_serial_ports",
             AsyncMock(return_value=[]),
+        ),
+        patch(
+            "custom_components.usb_dmx.config_flow._async_get_stable_path",
+            AsyncMock(return_value="/dev/serial/by-id/manual-dmx"),
+        ) as get_stable_path,
+        patch(
+            "custom_components.usb_dmx.config_flow.async_create_backend",
+            AsyncMock(return_value=backend),
+        ),
+    ):
+        form = await _start_user_flow(hass)
+        manual_form = await hass.config_entries.flow.async_configure(
+            form["flow_id"],
+            {CONF_BACKEND: BACKEND_SERIAL_PRO, CONF_DEVICE: MANUAL_PATH},
+        )
+        result = await hass.config_entries.flow.async_configure(
+            manual_form["flow_id"],
+            {
+                CONF_BACKEND: BACKEND_SERIAL_PRO,
+                CONF_DEVICE: " /dev//ttyUSB9 ",
+            },
+        )
+
+    assert manual_form["type"] is FlowResultType.FORM
+    assert manual_form["step_id"] == "manual"
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"] == {
+        CONF_BACKEND: BACKEND_SERIAL_PRO,
+        CONF_DEVICE: "/dev/serial/by-id/manual-dmx",
+        CONF_INTERFACE_ID: "/dev/serial/by-id/manual-dmx",
+    }
+    assert result["result"].unique_id == "/dev/serial/by-id/manual-dmx"
+    get_stable_path.assert_awaited_once_with(hass, "/dev/ttyUSB9")
+    assert backend.disconnect_calls == 1
+
+
+async def test_manual_path_collapses_posix_double_slash(
+    hass: HomeAssistant,
+) -> None:
+    """A POSIX path with two leading slashes stores one canonical leading slash."""
+    backend = FakeBackend()
+    with (
+        patch(
+            "custom_components.usb_dmx.config_flow._async_scan_serial_ports",
+            AsyncMock(return_value=[]),
+        ),
+        patch(
+            "custom_components.usb_dmx.config_flow._async_get_stable_path",
+            AsyncMock(return_value="//dev/ttyUSB9"),
         ),
         patch(
             "custom_components.usb_dmx.config_flow.async_create_backend",
@@ -118,20 +169,13 @@ async def test_manual_path_escape_hatch_creates_entry(
             manual_form["flow_id"],
             {
                 CONF_BACKEND: BACKEND_SERIAL_PRO,
-                CONF_DEVICE: " /dev/ttyUSB9 ",
+                CONF_DEVICE: "//dev//ttyUSB9",
             },
         )
 
-    assert manual_form["type"] is FlowResultType.FORM
-    assert manual_form["step_id"] == "manual"
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["data"] == {
-        CONF_BACKEND: BACKEND_SERIAL_PRO,
-        CONF_DEVICE: "/dev/ttyUSB9",
-        CONF_INTERFACE_ID: "/dev/ttyUSB9",
-    }
+    assert result["data"][CONF_DEVICE] == "/dev/ttyUSB9"
     assert result["result"].unique_id == "/dev/ttyUSB9"
-    assert backend.disconnect_calls == 1
 
 
 async def test_manual_path_rejects_empty_and_unreachable_devices(
@@ -145,6 +189,10 @@ async def test_manual_path_rejects_empty_and_unreachable_devices(
         patch(
             "custom_components.usb_dmx.config_flow._async_scan_serial_ports",
             AsyncMock(return_value=[]),
+        ),
+        patch(
+            "custom_components.usb_dmx.config_flow._async_get_stable_path",
+            AsyncMock(side_effect=lambda _hass, path: path),
         ),
         patch(
             "custom_components.usb_dmx.config_flow.async_create_backend",
@@ -176,16 +224,23 @@ async def test_manual_path_rejects_empty_and_unreachable_devices(
 
 async def test_duplicate_manual_path_aborts_before_opening_device(
     hass: HomeAssistant,
+    tmp_path: Path,
 ) -> None:
-    """A normalized manual path cannot create a duplicate physical interface."""
+    """A manual real-path alias cannot duplicate a discovered by-id interface."""
+    device = tmp_path / "ttyUSB0"
+    device.touch()
+    by_id = tmp_path / "serial" / "by-id"
+    by_id.mkdir(parents=True)
+    stable_path = by_id / "dmx-interface"
+    stable_path.symlink_to(device)
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={
             CONF_BACKEND: BACKEND_SERIAL_PRO,
-            CONF_DEVICE: "/dev/ttyUSB0",
-            CONF_INTERFACE_ID: "/dev/ttyUSB0",
+            CONF_DEVICE: str(stable_path),
+            CONF_INTERFACE_ID: "enttec:dmx usb pro:serial-1",
         },
-        unique_id="/dev/ttyUSB0",
+        unique_id="enttec:dmx usb pro:serial-1",
     )
     entry.add_to_hass(hass)
 
@@ -193,6 +248,10 @@ async def test_duplicate_manual_path_aborts_before_opening_device(
         patch(
             "custom_components.usb_dmx.config_flow._async_scan_serial_ports",
             AsyncMock(return_value=[]),
+        ),
+        patch(
+            "custom_components.usb_dmx.config_flow._async_get_stable_path",
+            AsyncMock(side_effect=lambda _hass, path: path),
         ),
         patch(
             "custom_components.usb_dmx.config_flow.async_create_backend",
@@ -206,12 +265,387 @@ async def test_duplicate_manual_path_aborts_before_opening_device(
         )
         result = await hass.config_entries.flow.async_configure(
             manual_form["flow_id"],
-            {CONF_BACKEND: BACKEND_SERIAL_PRO, CONF_DEVICE: "/dev//ttyUSB0"},
+            {
+                CONF_BACKEND: BACKEND_SERIAL_PRO,
+                CONF_DEVICE: f"{tmp_path}//ttyUSB0",
+            },
         )
 
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "already_configured"
     create_backend.assert_not_awaited()
+
+
+async def test_scanned_candidate_cannot_duplicate_manual_entry(
+    hass: HomeAssistant,
+) -> None:
+    """Product metadata cannot bypass a device-path duplicate before opening."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_BACKEND: BACKEND_SERIAL_PRO,
+            CONF_DEVICE: "/dev/serial/by-id/dmx-interface",
+            CONF_INTERFACE_ID: "/dev/serial/by-id/dmx-interface",
+        },
+        unique_id="/dev/serial/by-id/dmx-interface",
+    )
+    entry.add_to_hass(hass)
+    candidate = SimpleNamespace(
+        device="/dev/ttyUSB0",
+        resolved_device=None,
+        serial_number="SERIAL-1",
+        manufacturer="ENTTEC",
+        description="DMX USB Pro",
+    )
+
+    with (
+        patch(
+            "custom_components.usb_dmx.config_flow._async_scan_serial_ports",
+            AsyncMock(return_value=[candidate]),
+        ),
+        patch(
+            "custom_components.usb_dmx.config_flow._async_get_stable_path",
+            AsyncMock(return_value="/dev/serial/by-id/dmx-interface"),
+        ),
+        patch(
+            "custom_components.usb_dmx.config_flow.async_create_backend",
+            new=AsyncMock(),
+        ) as create_backend,
+    ):
+        form = await _start_user_flow(hass)
+        result = await hass.config_entries.flow.async_configure(
+            form["flow_id"],
+            {
+                CONF_BACKEND: BACKEND_SERIAL_PRO,
+                CONF_DEVICE: "/dev/serial/by-id/dmx-interface",
+            },
+        )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
+    create_backend.assert_not_awaited()
+
+
+async def test_usb_discovery_cannot_duplicate_manual_entry(
+    hass: HomeAssistant,
+) -> None:
+    """USB serial metadata cannot duplicate an entry for the same device path."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_BACKEND: BACKEND_SERIAL_PRO,
+            CONF_DEVICE: "/dev/serial/by-id/dmx-interface",
+            CONF_INTERFACE_ID: "/dev/serial/by-id/dmx-interface",
+        },
+        unique_id="/dev/serial/by-id/dmx-interface",
+    )
+    entry.add_to_hass(hass)
+    discovery = UsbServiceInfo(
+        device="/dev/ttyUSB0",
+        vid="0403",
+        pid="6001",
+        serial_number="SERIAL-1",
+        manufacturer="ENTTEC",
+        description="DMX USB Pro",
+    )
+
+    with (
+        patch(
+            "custom_components.usb_dmx.config_flow._async_get_stable_path",
+            AsyncMock(return_value="/dev/serial/by-id/dmx-interface"),
+        ),
+        patch(
+            "custom_components.usb_dmx.config_flow.async_create_backend",
+            new=AsyncMock(),
+        ) as create_backend,
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_USB},
+            data=discovery,
+        )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
+    create_backend.assert_not_awaited()
+
+
+async def test_manual_flow_retries_different_path_after_connection_failure(
+    hass: HomeAssistant,
+) -> None:
+    """One manual flow can recover from cannot-connect with a different device."""
+    backend = FakeBackend()
+    backend.connect_failures = 1
+    with (
+        patch(
+            "custom_components.usb_dmx.config_flow._async_scan_serial_ports",
+            AsyncMock(return_value=[]),
+        ),
+        patch(
+            "custom_components.usb_dmx.config_flow._async_get_stable_path",
+            AsyncMock(
+                side_effect=[
+                    "/dev/serial/by-id/unreachable",
+                    "/dev/serial/by-id/reachable",
+                ]
+            ),
+        ),
+        patch(
+            "custom_components.usb_dmx.config_flow.async_create_backend",
+            AsyncMock(return_value=backend),
+        ),
+    ):
+        form = await _start_user_flow(hass)
+        manual_form = await hass.config_entries.flow.async_configure(
+            form["flow_id"],
+            {CONF_BACKEND: BACKEND_SERIAL_PRO, CONF_DEVICE: MANUAL_PATH},
+        )
+        cannot_connect = await hass.config_entries.flow.async_configure(
+            manual_form["flow_id"],
+            {CONF_BACKEND: BACKEND_SERIAL_PRO, CONF_DEVICE: "/dev/ttyUSB0"},
+        )
+        result = await hass.config_entries.flow.async_configure(
+            cannot_connect["flow_id"],
+            {CONF_BACKEND: BACKEND_SERIAL_PRO, CONF_DEVICE: "/dev/ttyUSB1"},
+        )
+
+    assert cannot_connect["type"] is FlowResultType.FORM
+    assert cannot_connect["errors"] == {"base": "cannot_connect"}
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_DEVICE] == "/dev/serial/by-id/reachable"
+    assert result["result"].unique_id == "/dev/serial/by-id/reachable"
+
+
+async def test_failed_validation_does_not_reserve_interface_identity(
+    hass: HomeAssistant,
+) -> None:
+    """A failed flow does not block another flow from validating the same device."""
+    backend = FakeBackend()
+    backend.connect_failures = 1
+    with (
+        patch(
+            "custom_components.usb_dmx.config_flow._async_scan_serial_ports",
+            AsyncMock(return_value=[]),
+        ),
+        patch(
+            "custom_components.usb_dmx.config_flow._async_get_stable_path",
+            AsyncMock(side_effect=lambda _hass, path: path),
+        ),
+        patch(
+            "custom_components.usb_dmx.config_flow.async_create_backend",
+            AsyncMock(return_value=backend),
+        ),
+    ):
+        first = await _start_user_flow(hass)
+        first_manual = await hass.config_entries.flow.async_configure(
+            first["flow_id"],
+            {CONF_BACKEND: BACKEND_SERIAL_PRO, CONF_DEVICE: MANUAL_PATH},
+        )
+        cannot_connect = await hass.config_entries.flow.async_configure(
+            first_manual["flow_id"],
+            {CONF_BACKEND: BACKEND_SERIAL_PRO, CONF_DEVICE: "/dev/ttyUSB0"},
+        )
+
+        second = await _start_user_flow(hass)
+        second_manual = await hass.config_entries.flow.async_configure(
+            second["flow_id"],
+            {CONF_BACKEND: BACKEND_SERIAL_PRO, CONF_DEVICE: MANUAL_PATH},
+        )
+        result = await hass.config_entries.flow.async_configure(
+            second_manual["flow_id"],
+            {CONF_BACKEND: BACKEND_SERIAL_PRO, CONF_DEVICE: "/dev/ttyUSB0"},
+        )
+
+    assert cannot_connect["type"] is FlowResultType.FORM
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
+async def test_in_progress_manual_flow_reserves_canonical_device_path(
+    hass: HomeAssistant,
+) -> None:
+    """A scanned flow cannot open a canonical device held by a manual flow."""
+    candidate = SimpleNamespace(
+        device="/dev/ttyUSB0",
+        resolved_device=None,
+        serial_number="SERIAL-1",
+        manufacturer="ENTTEC",
+        description="DMX USB Pro",
+    )
+    manual_backend = FakeBackend()
+    manual_backend.connect_gate = asyncio.Event()
+    scanned_backend = FakeBackend()
+
+    with (
+        patch(
+            "custom_components.usb_dmx.config_flow._async_scan_serial_ports",
+            AsyncMock(side_effect=[[], [candidate]]),
+        ),
+        patch(
+            "custom_components.usb_dmx.config_flow._async_get_stable_path",
+            AsyncMock(return_value="/dev/serial/by-id/dmx-interface"),
+        ),
+        patch(
+            "custom_components.usb_dmx.config_flow.async_create_backend",
+            AsyncMock(side_effect=[manual_backend, scanned_backend]),
+        ),
+    ):
+        manual = await _start_user_flow(hass)
+        manual_form = await hass.config_entries.flow.async_configure(
+            manual["flow_id"],
+            {CONF_BACKEND: BACKEND_SERIAL_PRO, CONF_DEVICE: MANUAL_PATH},
+        )
+        manual_result_task = asyncio.create_task(
+            hass.config_entries.flow.async_configure(
+                manual_form["flow_id"],
+                {CONF_BACKEND: BACKEND_SERIAL_PRO, CONF_DEVICE: "/dev/ttyUSB0"},
+            )
+        )
+        await manual_backend.connect_started.wait()
+
+        scanned = await _start_user_flow(hass)
+        scanned_result = await hass.config_entries.flow.async_configure(
+            scanned["flow_id"],
+            {
+                CONF_BACKEND: BACKEND_SERIAL_PRO,
+                CONF_DEVICE: "/dev/serial/by-id/dmx-interface",
+            },
+        )
+
+        manual_backend.connect_gate.set()
+        manual_result = await manual_result_task
+
+    assert scanned_result["type"] is FlowResultType.ABORT
+    assert scanned_result["reason"] == "already_in_progress"
+    assert scanned_backend.connect_calls == 0
+    assert manual_result["type"] is FlowResultType.CREATE_ENTRY
+
+
+async def test_in_progress_scanned_flow_reserves_product_identity(
+    hass: HomeAssistant,
+) -> None:
+    """A product identity in progress cannot open a second canonical device."""
+    first_candidate = SimpleNamespace(
+        device="/dev/ttyUSB0",
+        resolved_device=None,
+        serial_number="SERIAL-1",
+        manufacturer="ENTTEC",
+        description="DMX USB Pro",
+    )
+    second_candidate = SimpleNamespace(
+        device="/dev/ttyUSB1",
+        resolved_device=None,
+        serial_number="SERIAL-1",
+        manufacturer="ENTTEC",
+        description="DMX USB Pro",
+    )
+    first_backend = FakeBackend()
+    first_backend.connect_gate = asyncio.Event()
+    second_backend = FakeBackend()
+
+    with (
+        patch(
+            "custom_components.usb_dmx.config_flow._async_scan_serial_ports",
+            AsyncMock(side_effect=[[first_candidate], [second_candidate]]),
+        ),
+        patch(
+            "custom_components.usb_dmx.config_flow._async_get_stable_path",
+            AsyncMock(
+                side_effect=[
+                    "/dev/serial/by-id/dmx-interface-1",
+                    "/dev/serial/by-id/dmx-interface-2",
+                ]
+            ),
+        ),
+        patch(
+            "custom_components.usb_dmx.config_flow.async_create_backend",
+            AsyncMock(side_effect=[first_backend, second_backend]),
+        ),
+    ):
+        first = await _start_user_flow(hass)
+        first_result_task = asyncio.create_task(
+            hass.config_entries.flow.async_configure(
+                first["flow_id"],
+                {
+                    CONF_BACKEND: BACKEND_SERIAL_PRO,
+                    CONF_DEVICE: "/dev/serial/by-id/dmx-interface-1",
+                },
+            )
+        )
+        await first_backend.connect_started.wait()
+
+        second = await _start_user_flow(hass)
+        second_result = await hass.config_entries.flow.async_configure(
+            second["flow_id"],
+            {
+                CONF_BACKEND: BACKEND_SERIAL_PRO,
+                CONF_DEVICE: "/dev/serial/by-id/dmx-interface-2",
+            },
+        )
+
+        first_backend.connect_gate.set()
+        first_result = await first_result_task
+
+    assert second_result["type"] is FlowResultType.ABORT
+    assert second_result["reason"] == "already_in_progress"
+    assert second_backend.connect_calls == 0
+    assert first_result["type"] is FlowResultType.CREATE_ENTRY
+
+
+async def test_unexpected_error_releases_in_progress_identity(
+    hass: HomeAssistant,
+) -> None:
+    """A failed reserved step cannot block a later flow for the same device."""
+    backend = FakeBackend()
+    comparison_key = "/dev/ttyUSB0"
+    comparison_results = [
+        comparison_key,
+        comparison_key,
+        RuntimeError("canonical comparison failed"),
+        comparison_key,
+        comparison_key,
+        comparison_key,
+        comparison_key,
+    ]
+    with (
+        patch(
+            "custom_components.usb_dmx.config_flow._async_scan_serial_ports",
+            AsyncMock(side_effect=[[], []]),
+        ),
+        patch(
+            "custom_components.usb_dmx.config_flow._async_get_stable_path",
+            AsyncMock(side_effect=lambda _hass, path: path),
+        ),
+        patch(
+            "custom_components.usb_dmx.config_flow._async_get_path_comparison_key",
+            AsyncMock(side_effect=comparison_results),
+        ),
+        patch(
+            "custom_components.usb_dmx.config_flow.async_create_backend",
+            AsyncMock(return_value=backend),
+        ),
+    ):
+        first = await _start_user_flow(hass)
+        first_manual = await hass.config_entries.flow.async_configure(
+            first["flow_id"],
+            {CONF_BACKEND: BACKEND_SERIAL_PRO, CONF_DEVICE: MANUAL_PATH},
+        )
+        with pytest.raises(RuntimeError, match="canonical comparison failed"):
+            await hass.config_entries.flow.async_configure(
+                first_manual["flow_id"],
+                {CONF_BACKEND: BACKEND_SERIAL_PRO, CONF_DEVICE: "/dev/ttyUSB0"},
+            )
+
+        second = await _start_user_flow(hass)
+        second_manual = await hass.config_entries.flow.async_configure(
+            second["flow_id"],
+            {CONF_BACKEND: BACKEND_SERIAL_PRO, CONF_DEVICE: MANUAL_PATH},
+        )
+        result = await hass.config_entries.flow.async_configure(
+            second_manual["flow_id"],
+            {CONF_BACKEND: BACKEND_SERIAL_PRO, CONF_DEVICE: "/dev/ttyUSB0"},
+        )
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
 
 
 async def test_usb_discovery_requires_confirmation_and_prefers_by_id(
@@ -279,6 +713,10 @@ async def test_reconfigure_updates_connection_only_and_preserves_identity(
 
     with (
         patch(
+            "custom_components.usb_dmx.config_flow._async_get_stable_path",
+            AsyncMock(return_value="/dev/serial/by-id/replacement"),
+        ) as get_stable_path,
+        patch(
             "custom_components.usb_dmx.config_flow.async_create_backend",
             AsyncMock(return_value=backend),
         ),
@@ -289,7 +727,7 @@ async def test_reconfigure_updates_connection_only_and_preserves_identity(
             form["flow_id"],
             {
                 CONF_BACKEND: BACKEND_SERIAL_PRO,
-                CONF_DEVICE: "/dev/serial/by-id/replacement",
+                CONF_DEVICE: "/dev//ttyUSB1",
             },
         )
 
@@ -307,4 +745,110 @@ async def test_reconfigure_updates_connection_only_and_preserves_identity(
     }
     assert dict(entry.options) == {"option": "preserve"}
     reload_mock.assert_called_once_with(entry.entry_id)
+    get_stable_path.assert_awaited_once_with(hass, "/dev/ttyUSB1")
     assert backend.disconnect_calls == 1
+
+
+async def test_reconfigure_rejects_foreign_device_before_opening(
+    hass: HomeAssistant,
+    tmp_path: Path,
+) -> None:
+    """Reconfigure reports a foreign canonical device conflict without opening."""
+    current = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_BACKEND: BACKEND_SERIAL_PRO,
+            CONF_DEVICE: "/dev/ttyUSB0",
+            CONF_INTERFACE_ID: "current-interface",
+        },
+        unique_id="current-interface",
+    )
+    current.add_to_hass(hass)
+    device = tmp_path / "ttyUSB1"
+    device.touch()
+    by_id = tmp_path / "serial" / "by-id"
+    by_id.mkdir(parents=True)
+    stable_path = by_id / "foreign-interface"
+    stable_path.symlink_to(device)
+    foreign = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_BACKEND: BACKEND_SERIAL_PRO,
+            CONF_DEVICE: str(stable_path),
+            CONF_INTERFACE_ID: "foreign-interface",
+        },
+        unique_id="foreign-interface",
+    )
+    foreign.add_to_hass(hass)
+
+    with (
+        patch(
+            "custom_components.usb_dmx.config_flow._async_get_stable_path",
+            AsyncMock(side_effect=lambda _hass, path: path),
+        ),
+        patch(
+            "custom_components.usb_dmx.config_flow.async_create_backend",
+            new=AsyncMock(),
+        ) as create_backend,
+    ):
+        form = await current.start_reconfigure_flow(hass)
+        result = await hass.config_entries.flow.async_configure(
+            form["flow_id"],
+            {
+                CONF_BACKEND: BACKEND_SERIAL_PRO,
+                CONF_DEVICE: f"{tmp_path}//ttyUSB1",
+            },
+        )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "reconfigure"
+    assert result["errors"] == {"base": "already_configured"}
+    create_backend.assert_not_awaited()
+
+
+async def test_reconfigure_excludes_current_entry_from_device_duplicates(
+    hass: HomeAssistant,
+    tmp_path: Path,
+) -> None:
+    """Reconfigure accepts an alias of its own canonical device path."""
+    device = tmp_path / "ttyUSB0"
+    device.touch()
+    by_id = tmp_path / "serial" / "by-id"
+    by_id.mkdir(parents=True)
+    stable_path = by_id / "current-interface"
+    stable_path.symlink_to(device)
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_BACKEND: BACKEND_SERIAL_PRO,
+            CONF_DEVICE: str(stable_path),
+            CONF_INTERFACE_ID: "current-interface",
+        },
+        unique_id="current-interface",
+    )
+    entry.add_to_hass(hass)
+    backend = FakeBackend()
+
+    with (
+        patch(
+            "custom_components.usb_dmx.config_flow._async_get_stable_path",
+            AsyncMock(side_effect=lambda _hass, path: path),
+        ),
+        patch(
+            "custom_components.usb_dmx.config_flow.async_create_backend",
+            AsyncMock(return_value=backend),
+        ),
+        patch.object(hass.config_entries, "async_schedule_reload"),
+    ):
+        form = await entry.start_reconfigure_flow(hass)
+        result = await hass.config_entries.flow.async_configure(
+            form["flow_id"],
+            {
+                CONF_BACKEND: BACKEND_SERIAL_PRO,
+                CONF_DEVICE: str(device),
+            },
+        )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert entry.data[CONF_DEVICE] == str(device)

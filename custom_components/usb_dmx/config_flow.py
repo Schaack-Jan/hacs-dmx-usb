@@ -31,6 +31,8 @@ if TYPE_CHECKING:
     from homeassistant.helpers.service_info.usb import UsbServiceInfo
 
 _MANUAL_PATH = "__manual_path__"
+_FLOW_DEVICE_PATH_KEY = "usb_dmx_device_path_key"
+_FLOW_INTERFACE_ID = "usb_dmx_interface_id"
 
 
 class _SerialDevice(Protocol):
@@ -65,7 +67,18 @@ async def _async_get_stable_path(hass: HomeAssistant, path: str) -> str:
 
 def _normalize_path(path: str) -> str:
     """Normalize a non-empty serial path without resolving stable symlinks."""
-    return os.path.normpath(path.strip())
+    normalized = os.path.normpath(path.strip())
+    if normalized.startswith("//"):
+        return f"/{normalized.lstrip('/')}"
+    return normalized
+
+
+async def _async_get_path_comparison_key(hass: HomeAssistant, path: str) -> str:
+    """Return a canonical device key without changing the stored stable path."""
+    real_path = await hass.async_add_executor_job(
+        os.path.realpath, _normalize_path(path)
+    )
+    return _normalize_path(real_path)
 
 
 def _interface_id(
@@ -127,6 +140,77 @@ class UsbDmxConfigFlow(ConfigFlow, domain=DOMAIN):
                 valid = False
         return valid
 
+    def _is_interface_id_configured(self, interface_id: str) -> bool:
+        """Return whether this domain already owns an interface identity."""
+        return (
+            self.hass.config_entries.async_entry_for_domain_unique_id(
+                DOMAIN, interface_id
+            )
+            is not None
+        )
+
+    async def _async_is_device_configured(
+        self, path: str, *, exclude_entry_id: str | None = None
+    ) -> bool:
+        """Return whether another domain entry owns the canonical device path."""
+        comparison_key = await _async_get_path_comparison_key(self.hass, path)
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.entry_id == exclude_entry_id:
+                continue
+            configured_path = entry.data.get(CONF_DEVICE)
+            if not isinstance(configured_path, str):
+                continue
+            if (
+                await _async_get_path_comparison_key(self.hass, configured_path)
+                == comparison_key
+            ):
+                return True
+        return False
+
+    async def _async_interface_is_configured(
+        self, *, path: str, interface_id: str
+    ) -> bool:
+        """Check both HA identity and canonical device path before opening."""
+        return self._is_interface_id_configured(
+            interface_id
+        ) or await self._async_is_device_configured(path)
+
+    def _release_flow_identity(self) -> None:
+        """Release transient identity reservations after retryable errors."""
+        self.context.pop(_FLOW_DEVICE_PATH_KEY, None)
+        self.context.pop(_FLOW_INTERFACE_ID, None)
+
+    async def _async_reserve_flow_identity(
+        self, *, path: str, interface_id: str | None
+    ) -> bool:
+        """Reserve a canonical device and optional product ID for this flow."""
+        try:
+            comparison_key = await _async_get_path_comparison_key(self.hass, path)
+        except BaseException:
+            self._release_flow_identity()
+            raise
+        if self.context.get(_FLOW_DEVICE_PATH_KEY) == comparison_key and (
+            interface_id is None or self.context.get(_FLOW_INTERFACE_ID) == interface_id
+        ):
+            return True
+
+        self._release_flow_identity()
+        if self._async_in_progress(
+            include_uninitialized=True,
+            match_context={_FLOW_DEVICE_PATH_KEY: comparison_key},
+        ):
+            return False
+        if interface_id is not None and self._async_in_progress(
+            include_uninitialized=True,
+            match_context={_FLOW_INTERFACE_ID: interface_id},
+        ):
+            return False
+
+        self.context[_FLOW_DEVICE_PATH_KEY] = comparison_key
+        if interface_id is not None:
+            self.context[_FLOW_INTERFACE_ID] = interface_id
+        return True
+
     async def _async_create_interface_entry(
         self,
         *,
@@ -135,20 +219,44 @@ class UsbDmxConfigFlow(ConfigFlow, domain=DOMAIN):
         interface_id: str,
     ) -> ConfigFlowResult:
         """Reject duplicates, validate transport, and create an entry."""
-        await self.async_set_unique_id(interface_id)
-        self._abort_if_unique_id_configured()
-        data = {
-            CONF_BACKEND: backend,
-            CONF_DEVICE: path,
-            CONF_INTERFACE_ID: interface_id,
-        }
-        if not await self._async_validate_connection(data):
-            return self.async_show_form(
-                step_id="manual",
-                data_schema=self._manual_schema(backend=backend, device=path),
-                errors={"base": "cannot_connect"},
-            )
-        return self.async_create_entry(title=f"USB DMX ({path})", data=data)
+        if await self._async_interface_is_configured(
+            path=path, interface_id=interface_id
+        ):
+            return self.async_abort(reason="already_configured")
+        if not await self._async_reserve_flow_identity(
+            path=path, interface_id=interface_id
+        ):
+            return self.async_abort(reason="already_in_progress")
+        try:
+            if await self._async_interface_is_configured(
+                path=path, interface_id=interface_id
+            ):
+                self._release_flow_identity()
+                return self.async_abort(reason="already_configured")
+            data = {
+                CONF_BACKEND: backend,
+                CONF_DEVICE: path,
+                CONF_INTERFACE_ID: interface_id,
+            }
+            valid = await self._async_validate_connection(data)
+            if not valid:
+                self._release_flow_identity()
+                return self.async_show_form(
+                    step_id="manual",
+                    data_schema=self._manual_schema(backend=backend, device=path),
+                    errors={"base": "cannot_connect"},
+                )
+            if await self._async_interface_is_configured(
+                path=path, interface_id=interface_id
+            ):
+                self._release_flow_identity()
+                return self.async_abort(reason="already_configured")
+            await self.async_set_unique_id(interface_id)
+            self._abort_if_unique_id_configured()
+            return self.async_create_entry(title=f"USB DMX ({path})", data=data)
+        except BaseException:
+            self._release_flow_identity()
+            raise
 
     @staticmethod
     def _manual_schema(
@@ -227,7 +335,10 @@ class UsbDmxConfigFlow(ConfigFlow, domain=DOMAIN):
             if not raw_path.strip():
                 errors[CONF_DEVICE] = "invalid_device"
             else:
-                path = _normalize_path(raw_path)
+                normalized_path = _normalize_path(raw_path)
+                path = _normalize_path(
+                    await _async_get_stable_path(self.hass, normalized_path)
+                )
                 interface_id = _interface_id(path)
                 return await self._async_create_interface_entry(
                     backend=user_input[CONF_BACKEND],
@@ -253,14 +364,29 @@ class UsbDmxConfigFlow(ConfigFlow, domain=DOMAIN):
             manufacturer=discovery_info.manufacturer,
             product=discovery_info.description,
         )
-        await self.async_set_unique_id(interface_id)
-        self._abort_if_unique_id_configured()
-        self._discovery_data = {
-            CONF_BACKEND: BACKEND_SERIAL_PRO,
-            CONF_DEVICE: path,
-            CONF_INTERFACE_ID: interface_id,
-        }
-        return await self.async_step_usb_confirm()
+        if await self._async_interface_is_configured(
+            path=path, interface_id=interface_id
+        ):
+            return self.async_abort(reason="already_configured")
+        if not await self._async_reserve_flow_identity(
+            path=path, interface_id=interface_id
+        ):
+            return self.async_abort(reason="already_in_progress")
+        try:
+            if await self._async_interface_is_configured(
+                path=path, interface_id=interface_id
+            ):
+                self._release_flow_identity()
+                return self.async_abort(reason="already_configured")
+            self._discovery_data = {
+                CONF_BACKEND: BACKEND_SERIAL_PRO,
+                CONF_DEVICE: path,
+                CONF_INTERFACE_ID: interface_id,
+            }
+            return await self.async_step_usb_confirm()
+        except BaseException:
+            self._release_flow_identity()
+            raise
 
     async def async_step_usb_confirm(
         self, user_input: dict[str, Any] | None = None
@@ -270,12 +396,35 @@ class UsbDmxConfigFlow(ConfigFlow, domain=DOMAIN):
             return self.async_abort(reason="invalid_discovery_info")
         errors: dict[str, str] = {}
         if user_input is not None:
-            if await self._async_validate_connection(discovery_data):
-                path = discovery_data[CONF_DEVICE]
-                return self.async_create_entry(
-                    title=f"USB DMX ({path})", data=discovery_data
-                )
-            errors["base"] = "cannot_connect"
+            path = discovery_data[CONF_DEVICE]
+            interface_id = discovery_data[CONF_INTERFACE_ID]
+            if not await self._async_reserve_flow_identity(
+                path=path, interface_id=interface_id
+            ):
+                return self.async_abort(reason="already_in_progress")
+            try:
+                if await self._async_interface_is_configured(
+                    path=path, interface_id=interface_id
+                ):
+                    self._release_flow_identity()
+                    return self.async_abort(reason="already_configured")
+                valid = await self._async_validate_connection(discovery_data)
+                if valid:
+                    if await self._async_interface_is_configured(
+                        path=path, interface_id=interface_id
+                    ):
+                        self._release_flow_identity()
+                        return self.async_abort(reason="already_configured")
+                    await self.async_set_unique_id(interface_id)
+                    self._abort_if_unique_id_configured()
+                    return self.async_create_entry(
+                        title=f"USB DMX ({path})", data=discovery_data
+                    )
+                self._release_flow_identity()
+                errors["base"] = "cannot_connect"
+            except BaseException:
+                self._release_flow_identity()
+                raise
 
         self._set_confirm_only()
         return self.async_show_form(
@@ -295,21 +444,49 @@ class UsbDmxConfigFlow(ConfigFlow, domain=DOMAIN):
             if not raw_path.strip():
                 errors[CONF_DEVICE] = "invalid_device"
             else:
-                path = _normalize_path(raw_path)
+                normalized_path = _normalize_path(raw_path)
+                path = _normalize_path(
+                    await _async_get_stable_path(self.hass, normalized_path)
+                )
                 connection_data = {
                     CONF_BACKEND: user_input[CONF_BACKEND],
                     CONF_DEVICE: path,
                     CONF_INTERFACE_ID: entry.data[CONF_INTERFACE_ID],
                 }
-                if await self._async_validate_connection(connection_data):
-                    return self.async_update_reload_and_abort(
-                        entry,
-                        data_updates={
-                            CONF_BACKEND: user_input[CONF_BACKEND],
-                            CONF_DEVICE: path,
-                        },
-                    )
-                errors["base"] = "cannot_connect"
+                if await self._async_is_device_configured(
+                    path, exclude_entry_id=entry.entry_id
+                ) or not await self._async_reserve_flow_identity(
+                    path=path, interface_id=None
+                ):
+                    errors["base"] = "already_configured"
+                elif await self._async_is_device_configured(
+                    path, exclude_entry_id=entry.entry_id
+                ):
+                    self._release_flow_identity()
+                    errors["base"] = "already_configured"
+                else:
+                    try:
+                        valid = await self._async_validate_connection(connection_data)
+                        if valid:
+                            if await self._async_is_device_configured(
+                                path, exclude_entry_id=entry.entry_id
+                            ):
+                                self._release_flow_identity()
+                                errors["base"] = "already_configured"
+                            else:
+                                return self.async_update_reload_and_abort(
+                                    entry,
+                                    data_updates={
+                                        CONF_BACKEND: user_input[CONF_BACKEND],
+                                        CONF_DEVICE: path,
+                                    },
+                                )
+                        else:
+                            self._release_flow_identity()
+                            errors["base"] = "cannot_connect"
+                    except BaseException:
+                        self._release_flow_identity()
+                        raise
 
         return self.async_show_form(
             step_id="reconfigure",

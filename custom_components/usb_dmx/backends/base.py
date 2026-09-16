@@ -8,6 +8,22 @@ from ..const import DMX_CHANNEL_COUNT
 from ..models import BackendCapabilities, BackendInfo
 
 
+class BackendError(Exception):
+    """Base class for expected DMX backend failures."""
+
+
+class BackendConnectionError(BackendError):
+    """Report a failure to establish or close a backend connection."""
+
+
+class BackendTransportError(BackendError):
+    """Report a failure while sending data through a connected backend."""
+
+
+class BackendNotConnectedError(BackendTransportError):
+    """Report an attempted operation without a live backend connection."""
+
+
 class DmxBackend(ABC):
     """Define the asynchronous contract implemented by DMX transports."""
 

@@ -88,21 +88,27 @@ class UsbDmxDimmer(UsbDmxEntity, LightEntity, RestoreEntity):
     @override
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on at an explicit, remembered, or full brightness."""
-        brightness = kwargs.get(ATTR_BRIGHTNESS)
-        if brightness is None:
-            brightness = self._attr_brightness or DMX_MAX_VALUE
-        self._validate_brightness(brightness)
-        transition = self._validated_transition(kwargs)
-        await self._async_apply_brightness(brightness, transition=transition)
-        self._async_write_state_if_added()
+        async with self._command_removal_lock:
+            if self._removing:
+                return
+            brightness = kwargs.get(ATTR_BRIGHTNESS)
+            if brightness is None:
+                brightness = self._attr_brightness or DMX_MAX_VALUE
+            self._validate_brightness(brightness)
+            transition = self._validated_transition(kwargs)
+            await self._async_apply_brightness(brightness, transition=transition)
+            self._async_write_state_if_added()
 
     @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off while preserving the last nonzero HA brightness."""
-        transition = self._validated_transition(kwargs)
-        self._attr_is_on = False
-        await self._async_write_dmx(0, transition=transition)
-        self._async_write_state_if_added()
+        async with self._command_removal_lock:
+            if self._removing:
+                return
+            transition = self._validated_transition(kwargs)
+            self._attr_is_on = False
+            await self._async_write_dmx(0, transition=transition)
+            self._async_write_state_if_added()
 
     async def _async_apply_brightness(
         self, brightness: int, *, transition: float | None

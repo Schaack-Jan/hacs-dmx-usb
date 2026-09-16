@@ -24,6 +24,7 @@ from homeassistant.const import (
     Platform,
 )
 from homeassistant.core import State
+from homeassistant.helpers import entity_platform as ep
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import mock_restore_cache
 
@@ -39,7 +40,7 @@ from custom_components.usb_dmx.models import (
     StartupBehavior,
 )
 
-from .fakes import FakeBackend
+from .fakes import FakeBackend, ObservedSemaphore
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigSubentry
@@ -562,6 +563,97 @@ async def test_light_transition_service_publishes_target_state_immediately(
         state = hass.states.get(entity_id)
         assert state is not None
         assert state.state == STATE_OFF
+
+        assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_removed_light_cancels_active_and_rejects_queued_transition(
+    hass: HomeAssistant,
+    make_fixture_subentry: Callable[..., ConfigSubentry],
+    make_usb_dmx_entry: Callable[..., MockConfigEntry],
+) -> None:
+    """A final zero cancels the active fade and no queued fade can revive it."""
+    dimmer = make_fixture_subentry(fixture_id=DIMMER_ID, name="Front", address=1)
+    raw = make_fixture_subentry(
+        fixture_id=RAW_ID, fixture_type="raw", name="Relay", address=20
+    )
+    entry = make_usb_dmx_entry(dimmer, raw, startup_behavior=StartupBehavior.ZERO)
+    entry.add_to_hass(hass)
+    backend = FakeBackend()
+
+    with patch(
+        "custom_components.usb_dmx.async_create_backend",
+        AsyncMock(return_value=backend),
+    ):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        controller = entry.runtime_data.controller
+        registry = er.async_get(hass)
+        light_id = registry.async_get_entity_id(
+            "light", DOMAIN, f"{entry.entry_id}_{DIMMER_ID}"
+        )
+        number_id = registry.async_get_entity_id(
+            "number", DOMAIN, f"{entry.entry_id}_{RAW_ID}"
+        )
+        assert light_id is not None
+        assert number_id is not None
+        entity = next(
+            platform.entities[light_id]
+            for platform in ep.async_get_platforms(hass, DOMAIN)
+            if light_id in platform.entities
+        )
+        assert isinstance(entity, UsbDmxDimmer)
+
+        await hass.services.async_call(
+            "light",
+            "turn_on",
+            {ATTR_BRIGHTNESS: 128, ATTR_TRANSITION: 60},
+            target={"entity_id": light_id},
+            blocking=True,
+        )
+        assert 1 in controller._transition_tasks
+        assert not controller._transition_tasks[1].done()
+
+        service_gate = ObservedSemaphore(0, observe_acquire=1)
+        entity.parallel_updates = service_gate
+        queued = asyncio.create_task(
+            hass.services.async_call(
+                "light",
+                "turn_on",
+                {ATTR_BRIGHTNESS: 255, ATTR_TRANSITION: 0.05},
+                target={"entity_id": light_id},
+                blocking=True,
+            )
+        )
+        await service_gate.acquire_started.wait()
+
+        backend.send_gate = asyncio.Event()
+        backend.send_started.clear()
+        assert hass.config_entries.async_remove_subentry(entry, dimmer.subentry_id)
+        await backend.send_started.wait()
+        assert controller.current_frame[0] == 0
+        service_gate.release()
+        await service_gate.acquire_finished.wait()
+        backend.send_gate.set()
+
+        await queued
+        await hass.async_block_till_done()
+        settled = asyncio.Event()
+        hass.loop.call_later(0.1, settled.set)
+        await settled.wait()
+
+        assert controller.current_frame[0] == 0
+        assert backend.frames[-1][0] == 0
+        assert 1 not in controller._transition_tasks
+        assert hass.states.get(light_id) is None
+        assert registry.async_get(light_id) is None
+        assert hass.states.get(number_id) is not None
+        assert registry.async_get(number_id) is not None
+        assert len(controller._availability_listeners) == 1
+
+        frames_after_removal = list(backend.frames)
+        await entity.async_turn_off()
+        assert backend.frames == frames_after_removal
+        assert hass.states.get(light_id) is None
 
         assert await hass.config_entries.async_unload(entry.entry_id)
 

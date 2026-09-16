@@ -86,3 +86,30 @@ class FakeBackend(DmxBackend):
     async def probe(self) -> BackendInfo:
         """Return stable fake backend information."""
         return BackendInfo(name="fake", device="memory://dmx")
+
+
+class ObservedSemaphore:
+    """Expose when a selected service call waits for and acquires its permit."""
+
+    def __init__(self, value: int, *, observe_acquire: int) -> None:
+        """Initialize a semaphore and one deterministic acquisition probe."""
+        self._semaphore = asyncio.Semaphore(value)
+        self._observe_acquire = observe_acquire
+        self._acquire_count = 0
+        self.acquire_started = asyncio.Event()
+        self.acquire_finished = asyncio.Event()
+
+    async def acquire(self) -> bool:
+        """Acquire a permit while exposing the selected caller's boundaries."""
+        self._acquire_count += 1
+        observed = self._acquire_count == self._observe_acquire
+        if observed:
+            self.acquire_started.set()
+        acquired = await self._semaphore.acquire()
+        if observed:
+            self.acquire_finished.set()
+        return acquired
+
+    def release(self) -> None:
+        """Release one permit."""
+        self._semaphore.release()

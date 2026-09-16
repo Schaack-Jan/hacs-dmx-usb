@@ -60,17 +60,20 @@ class UsbDmxRawChannel(UsbDmxEntity, NumberEntity):
     @override
     async def async_set_native_value(self, value: float) -> None:
         """Validate an integral value and write it through the controller."""
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            msg = "value must be an integer between 0 and 255"
-            raise TypeError(msg)
-        if isinstance(value, float) and (
-            not math.isfinite(value) or not value.is_integer()
-        ):
-            msg = "value must be an integer between 0 and 255"
-            raise ValueError(msg)
-        integer_value = int(value)
-        if not 0 <= integer_value <= DMX_MAX_VALUE:
-            msg = "value must be an integer between 0 and 255"
-            raise ValueError(msg)
-        await self.controller.async_set_channel(self.fixture.address, integer_value)
-        self._async_write_state_if_added()
+        async with self._command_removal_lock:
+            if self._removing:
+                return
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                msg = "value must be an integer between 0 and 255"
+                raise TypeError(msg)
+            if isinstance(value, float) and (
+                not math.isfinite(value) or not value.is_integer()
+            ):
+                msg = "value must be an integer between 0 and 255"
+                raise ValueError(msg)
+            integer_value = int(value)
+            if not 0 <= integer_value <= DMX_MAX_VALUE:
+                msg = "value must be an integer between 0 and 255"
+                raise ValueError(msg)
+            await self.controller.async_set_channel(self.fixture.address, integer_value)
+            self._async_write_state_if_added()

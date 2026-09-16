@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import math
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
@@ -10,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from homeassistant.components.number import NumberMode
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_platform as ep
 from homeassistant.helpers import entity_registry as er
 
 from custom_components.usb_dmx import UsbDmxRuntime
@@ -29,7 +31,7 @@ from custom_components.usb_dmx.models import (
 )
 from custom_components.usb_dmx.number import UsbDmxRawChannel, async_setup_entry
 
-from .fakes import FakeBackend
+from .fakes import FakeBackend, ObservedSemaphore
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigSubentry
@@ -73,6 +75,13 @@ def _raw_fixture(
         minimum=minimum,
         maximum=maximum,
     )
+
+
+async def _wait_until(predicate: Callable[[], bool]) -> None:
+    """Yield until a synchronous condition becomes true."""
+    async with asyncio.timeout(1):
+        while not predicate():  # noqa: ASYNC110
+            await asyncio.sleep(0)
 
 
 async def test_number_platform_filters_fixtures_and_preserves_subentry_ownership(
@@ -348,6 +357,87 @@ async def test_loaded_subentry_deletion_removes_owned_entity_only(
         assert await hass.config_entries.async_unload(entry.entry_id)
 
 
+async def test_running_and_queued_number_commands_cannot_outlive_fixture_removal(
+    hass: HomeAssistant,
+    make_fixture_subentry: Callable[..., ConfigSubentry],
+    make_usb_dmx_entry: Callable[..., MockConfigEntry],
+) -> None:
+    """Removal wins after an active write and rejects its queued successor."""
+    dimmer = make_fixture_subentry(fixture_id=DIMMER_ID, name="Front", address=1)
+    raw = make_fixture_subentry(
+        fixture_id=RAW_ID, fixture_type="raw", name="Relay", address=20
+    )
+    entry = make_usb_dmx_entry(dimmer, raw, startup_behavior=StartupBehavior.ZERO)
+    entry.add_to_hass(hass)
+    backend = FakeBackend()
+
+    with patch(
+        "custom_components.usb_dmx.async_create_backend",
+        AsyncMock(return_value=backend),
+    ):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        controller = entry.runtime_data.controller
+        registry = er.async_get(hass)
+        number_id = registry.async_get_entity_id(
+            "number", DOMAIN, f"{entry.entry_id}_{RAW_ID}"
+        )
+        light_id = registry.async_get_entity_id(
+            "light", DOMAIN, f"{entry.entry_id}_{DIMMER_ID}"
+        )
+        assert number_id is not None
+        assert light_id is not None
+        entity = next(
+            platform.entities[number_id]
+            for platform in ep.async_get_platforms(hass, DOMAIN)
+            if number_id in platform.entities
+        )
+        assert isinstance(entity, UsbDmxRawChannel)
+        service_gate = ObservedSemaphore(1, observe_acquire=2)
+        entity.parallel_updates = service_gate
+        backend.send_gate = asyncio.Event()
+        backend.send_started.clear()
+
+        active = asyncio.create_task(
+            hass.services.async_call(
+                "number",
+                "set_value",
+                {"value": 64},
+                target={"entity_id": number_id},
+                blocking=True,
+            )
+        )
+        await backend.send_started.wait()
+        assert controller.current_frame[19] == 64
+
+        queued = asyncio.create_task(
+            hass.services.async_call(
+                "number",
+                "set_value",
+                {"value": 255},
+                target={"entity_id": number_id},
+                blocking=True,
+            )
+        )
+        await service_gate.acquire_started.wait()
+
+        assert hass.config_entries.async_remove_subentry(entry, raw.subentry_id)
+        await _wait_until(lambda: len(controller._availability_listeners) == 1)
+        backend.send_gate.set()
+
+        await asyncio.gather(active, queued)
+        await hass.async_block_till_done()
+
+        assert controller.current_frame[19] == 0
+        assert backend.frames[-1][19] == 0
+        assert hass.states.get(number_id) is None
+        assert registry.async_get(number_id) is None
+        assert hass.states.get(light_id) is not None
+        assert registry.async_get(light_id) is not None
+        assert len(controller._availability_listeners) == 1
+
+        assert await hass.config_entries.async_unload(entry.entry_id)
+
+
 async def test_normal_unload_preserves_fixture_slot_without_blackout(
     hass: HomeAssistant,
     make_fixture_subentry: Callable[..., ConfigSubentry],
@@ -372,6 +462,12 @@ async def test_normal_unload_preserves_fixture_slot_without_blackout(
         )
         assert entity_id is not None
         controller = entry.runtime_data.controller
+        entity = next(
+            platform.entities[entity_id]
+            for platform in ep.async_get_platforms(hass, DOMAIN)
+            if entity_id in platform.entities
+        )
+        assert isinstance(entity, UsbDmxRawChannel)
 
         await hass.services.async_call(
             "number",
@@ -385,6 +481,10 @@ async def test_normal_unload_preserves_fixture_slot_without_blackout(
         assert await hass.config_entries.async_unload(entry.entry_id)
 
         assert raw.subentry_id in entry.subentries
+        assert controller.current_frame[19] == 255
+        assert backend.frames == frames_before
+
+        await entity.async_set_native_value(1)
         assert controller.current_frame[19] == 255
         assert backend.frames == frames_before
 

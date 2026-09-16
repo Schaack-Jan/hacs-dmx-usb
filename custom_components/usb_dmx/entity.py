@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, override
 
 from homeassistant.core import callback
@@ -79,6 +80,8 @@ class UsbDmxEntity(Entity):
         self.fixture = fixture
         self.entry = entry
         self.controller: DmxController = entry.runtime_data.controller
+        self._command_removal_lock = asyncio.Lock()
+        self._removing = False
         self._attr_name = fixture.name
         self._attr_unique_id = f"{entry.entry_id}_{fixture.fixture_id}"
 
@@ -102,12 +105,14 @@ class UsbDmxEntity(Entity):
     async def async_will_remove_from_hass(self) -> None:
         """Clear a deleted fixture slot but preserve it during normal unload."""
         await super().async_will_remove_from_hass()
-        if any(
-            subentry.unique_id == self.fixture.fixture_id
-            for subentry in self.entry.get_subentries_of_type(SUBENTRY_TYPE_FIXTURE)
-        ):
-            return
-        await self.controller.async_set_channel(self.fixture.address, 0)
+        async with self._command_removal_lock:
+            self._removing = True
+            if any(
+                subentry.unique_id == self.fixture.fixture_id
+                for subentry in self.entry.get_subentries_of_type(SUBENTRY_TYPE_FIXTURE)
+            ):
+                return
+            await self.controller.async_set_channel(self.fixture.address, 0)
 
     @callback
     def _async_handle_availability_update(

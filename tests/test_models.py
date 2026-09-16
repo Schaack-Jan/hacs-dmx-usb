@@ -47,7 +47,7 @@ def test_validate_fixtures_accepts_boundary_addresses(address: int) -> None:
 @pytest.mark.parametrize("address", [0, 513])
 def test_validate_fixtures_rejects_out_of_range_addresses(address: int) -> None:
     """An off-by-one address outside the universe is rejected."""
-    with pytest.raises(FixtureValidationError, match="^invalid_address$") as error:
+    with pytest.raises(FixtureValidationError, match=r"^invalid_address$") as error:
         validate_fixtures([_fixture(address=address)])
 
     assert error.value.reason == "invalid_address"
@@ -61,7 +61,7 @@ def test_validate_fixtures_rejects_invalid_value_ranges(
     minimum: int, maximum: int
 ) -> None:
     """Fixture value ranges stay within one byte and remain ordered."""
-    with pytest.raises(FixtureValidationError, match="^invalid_range$") as error:
+    with pytest.raises(FixtureValidationError, match=r"^invalid_range$") as error:
         validate_fixtures([_fixture(minimum=minimum, maximum=maximum)])
 
     assert error.value.reason == "invalid_range"
@@ -101,7 +101,7 @@ def test_validate_fixtures_rejects_duplicate_addresses() -> None:
         ),
     ]
 
-    with pytest.raises(FixtureValidationError, match="^duplicate_address$") as error:
+    with pytest.raises(FixtureValidationError, match=r"^duplicate_address$") as error:
         validate_fixtures(fixtures)
 
     assert error.value.reason == "duplicate_address"
@@ -117,7 +117,7 @@ def test_validate_fixtures_rejects_duplicate_names() -> None:
         ),
     ]
 
-    with pytest.raises(FixtureValidationError, match="^duplicate_name$") as error:
+    with pytest.raises(FixtureValidationError, match=r"^duplicate_name$") as error:
         validate_fixtures(fixtures)
 
     assert error.value.reason == "duplicate_name"
@@ -125,7 +125,7 @@ def test_validate_fixtures_rejects_duplicate_names() -> None:
 
 def test_validate_fixtures_rejects_malformed_fixture_id() -> None:
     """A malformed fixture ID cannot become an entity unique ID."""
-    with pytest.raises(FixtureValidationError, match="^invalid_fixture$") as error:
+    with pytest.raises(FixtureValidationError, match=r"^invalid_fixture$") as error:
         validate_fixtures([_fixture(fixture_id="not-a-uuid")])
 
     assert error.value.reason == "invalid_fixture"
@@ -139,7 +139,7 @@ def test_validate_fixtures_rejects_duplicate_fixture_ids() -> None:
         _fixture(fixture_id=fixture_id, name="Rear light", address=2),
     ]
 
-    with pytest.raises(FixtureValidationError, match="^invalid_fixture$") as error:
+    with pytest.raises(FixtureValidationError, match=r"^invalid_fixture$") as error:
         validate_fixtures(fixtures)
 
     assert error.value.reason == "invalid_fixture"
@@ -156,7 +156,7 @@ def test_fixture_from_mapping_rejects_unknown_fixture_type() -> None:
         "maximum": 255,
     }
 
-    with pytest.raises(FixtureValidationError, match="^invalid_fixture$") as error:
+    with pytest.raises(FixtureValidationError, match=r"^invalid_fixture$") as error:
         FixtureConfig.from_mapping(stored)
 
     assert error.value.reason == "invalid_fixture"

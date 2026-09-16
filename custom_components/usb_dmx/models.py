@@ -6,6 +6,7 @@ from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Final
+from uuid import UUID
 
 from .const import DMX_CHANNEL_COUNT, DMX_MAX_VALUE
 
@@ -111,15 +112,28 @@ class BackendInfo:
     device: str
 
 
+def _is_canonical_uuid(value: object) -> bool:
+    """Return whether a value is a canonical UUID string of any version."""
+    if not isinstance(value, str):
+        return False
+
+    try:
+        parsed = UUID(value)
+    except ValueError:
+        return False
+    return str(parsed) == value
+
+
 def validate_fixtures(fixtures: Collection[FixtureConfig]) -> None:
     """Validate a complete fixture collection."""
     addresses: set[int] = set()
+    fixture_ids: set[str] = set()
     names: set[str] = set()
 
     for fixture in fixtures:
         if (
             not isinstance(fixture, FixtureConfig)
-            or not fixture.fixture_id
+            or not _is_canonical_uuid(fixture.fixture_id)
             or not isinstance(fixture.fixture_type, FixtureType)
             or not fixture.name
         ):
@@ -142,6 +156,9 @@ def validate_fixtures(fixtures: Collection[FixtureConfig]) -> None:
             raise FixtureValidationError("duplicate_address")
         if fixture.name in names:
             raise FixtureValidationError("duplicate_name")
+        if fixture.fixture_id in fixture_ids:
+            raise FixtureValidationError("invalid_fixture")
 
         addresses.add(fixture.address)
+        fixture_ids.add(fixture.fixture_id)
         names.add(fixture.name)

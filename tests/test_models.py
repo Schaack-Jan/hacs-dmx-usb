@@ -123,6 +123,28 @@ def test_validate_fixtures_rejects_duplicate_names() -> None:
     assert error.value.reason == "duplicate_name"
 
 
+def test_validate_fixtures_rejects_malformed_fixture_id() -> None:
+    """A malformed fixture ID cannot become an entity unique ID."""
+    with pytest.raises(FixtureValidationError, match="^invalid_fixture$") as error:
+        validate_fixtures([_fixture(fixture_id="not-a-uuid")])
+
+    assert error.value.reason == "invalid_fixture"
+
+
+def test_validate_fixtures_rejects_duplicate_fixture_ids() -> None:
+    """Two fixtures cannot produce the same Home Assistant unique ID."""
+    fixture_id = "b95fb1d3-d613-4848-a99c-cdbeb31f2842"
+    fixtures = [
+        _fixture(fixture_id=fixture_id),
+        _fixture(fixture_id=fixture_id, name="Rear light", address=2),
+    ]
+
+    with pytest.raises(FixtureValidationError, match="^invalid_fixture$") as error:
+        validate_fixtures(fixtures)
+
+    assert error.value.reason == "invalid_fixture"
+
+
 def test_fixture_from_mapping_rejects_unknown_fixture_type() -> None:
     """Unknown stored fixture types fail with the stable invalid-fixture code."""
     stored = {

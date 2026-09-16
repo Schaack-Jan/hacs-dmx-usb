@@ -6,11 +6,24 @@ import os
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol, override
+from uuid import uuid4
 
 import voluptuous as vol
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    ConfigSubentry,
+    ConfigSubentryFlow,
+    OptionsFlowWithReload,
+    SubentryFlowResult,
+)
+from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.selector import (
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
@@ -21,9 +34,29 @@ from .backends.base import BackendError
 from .const import (
     BACKEND_SERIAL_PRO,
     CONF_BACKEND,
+    CONF_BLACKOUT_ON_SHUTDOWN,
     CONF_DEVICE,
+    CONF_FIXTURE_ADDRESS,
+    CONF_FIXTURE_ID,
+    CONF_FIXTURE_MAXIMUM,
+    CONF_FIXTURE_MINIMUM,
+    CONF_FIXTURE_NAME,
+    CONF_FIXTURE_TYPE,
     CONF_INTERFACE_ID,
+    CONF_STARTUP_BEHAVIOR,
+    DEFAULT_BLACKOUT_ON_SHUTDOWN,
+    DEFAULT_STARTUP_BEHAVIOR,
+    DMX_CHANNEL_COUNT,
+    DMX_MAX_VALUE,
     DOMAIN,
+    SUBENTRY_TYPE_FIXTURE,
+)
+from .models import (
+    FixtureConfig,
+    FixtureType,
+    FixtureValidationError,
+    StartupBehavior,
+    validate_fixtures,
 )
 
 if TYPE_CHECKING:
@@ -112,6 +145,22 @@ class UsbDmxConfigFlow(ConfigFlow, domain=DOMAIN):
         """Initialize per-flow candidate and discovery state."""
         self._candidates: dict[str, _SerialDevice] | None = None
         self._discovery_data: dict[str, str] | None = None
+
+    @staticmethod
+    @callback
+    @override
+    def async_get_options_flow(config_entry: ConfigEntry) -> UsbDmxOptionsFlow:
+        """Return the entry-wide options flow."""
+        return UsbDmxOptionsFlow()
+
+    @classmethod
+    @callback
+    @override
+    def async_get_supported_subentry_types(
+        cls, config_entry: ConfigEntry
+    ) -> dict[str, type[ConfigSubentryFlow]]:
+        """Advertise the single supported fixture subentry type."""
+        return {SUBENTRY_TYPE_FIXTURE: FixtureSubentryFlow}
 
     async def _async_load_candidates(self) -> None:
         """Load selector candidates without opening their serial transports."""
@@ -497,5 +546,248 @@ class UsbDmxConfigFlow(ConfigFlow, domain=DOMAIN):
                 backend=entry.data[CONF_BACKEND],
                 device=entry.data[CONF_DEVICE],
             ),
+            errors=errors,
+        )
+
+
+def _integer_value(value: object) -> object:
+    """Normalize integer-valued selector floats for JSON integer storage."""
+    if type(value) is float and value.is_integer():
+        return int(value)
+    return value
+
+
+def _fixture_from_input(
+    user_input: Mapping[str, Any], fixture_id: str
+) -> FixtureConfig:
+    """Convert form input through the domain storage boundary."""
+    return FixtureConfig.from_mapping(
+        {
+            CONF_FIXTURE_ID: fixture_id,
+            CONF_FIXTURE_TYPE: user_input.get(CONF_FIXTURE_TYPE),
+            CONF_FIXTURE_NAME: user_input.get(CONF_FIXTURE_NAME),
+            CONF_FIXTURE_ADDRESS: _integer_value(user_input.get(CONF_FIXTURE_ADDRESS)),
+            CONF_FIXTURE_MINIMUM: _integer_value(user_input.get(CONF_FIXTURE_MINIMUM)),
+            CONF_FIXTURE_MAXIMUM: _integer_value(user_input.get(CONF_FIXTURE_MAXIMUM)),
+        }
+    )
+
+
+def _stored_fixture(subentry: ConfigSubentry) -> FixtureConfig:
+    """Load a subentry while enforcing its single immutable identity."""
+    fixture = FixtureConfig.from_mapping(subentry.data)
+    if subentry.unique_id != fixture.fixture_id:
+        raise FixtureValidationError("invalid_fixture")
+    return fixture
+
+
+class _FixtureTypeSelector(SelectSelector):
+    """Render a dropdown while leaving stable error handling to the flow."""
+
+    @override
+    def __call__(self, data: Any) -> Any:
+        """Pass submitted data to the domain storage boundary unchanged."""
+        return data
+
+
+class _FixtureNumberSelector(NumberSelector):
+    """Render bounded numeric input while preserving flow-level errors."""
+
+    @override
+    def __call__(self, data: Any) -> Any:
+        """Pass submitted data to the domain storage boundary unchanged."""
+        return data
+
+
+class FixtureSubentryFlow(ConfigSubentryFlow):
+    """Create and reconfigure one fixture config subentry."""
+
+    def _schema(self, suggested_values: Mapping[str, Any] | None) -> vol.Schema:
+        """Build the fixture form with current Home Assistant selectors."""
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_FIXTURE_TYPE): _FixtureTypeSelector(
+                    SelectSelectorConfig(
+                        options=[fixture_type.value for fixture_type in FixtureType],
+                        mode=SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+                vol.Required(CONF_FIXTURE_NAME): cv.string,
+                vol.Required(CONF_FIXTURE_ADDRESS): _FixtureNumberSelector(
+                    NumberSelectorConfig(
+                        min=1,
+                        max=DMX_CHANNEL_COUNT,
+                        step=1,
+                        mode=NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(CONF_FIXTURE_MINIMUM): _FixtureNumberSelector(
+                    NumberSelectorConfig(
+                        min=0,
+                        max=DMX_MAX_VALUE,
+                        step=1,
+                        mode=NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(CONF_FIXTURE_MAXIMUM): _FixtureNumberSelector(
+                    NumberSelectorConfig(
+                        min=0,
+                        max=DMX_MAX_VALUE,
+                        step=1,
+                        mode=NumberSelectorMode.BOX,
+                    )
+                ),
+            }
+        )
+        return self.add_suggested_values_to_schema(schema, suggested_values)
+
+    def _siblings(
+        self, *, exclude_subentry_id: str | None = None
+    ) -> list[FixtureConfig]:
+        """Load every sibling fixture through the storage boundary."""
+        return [
+            _stored_fixture(subentry)
+            for subentry in self._get_entry().subentries.values()
+            if subentry.subentry_type == SUBENTRY_TYPE_FIXTURE
+            and subentry.subentry_id != exclude_subentry_id
+        ]
+
+    @staticmethod
+    def _successful_fixture(fixture: FixtureConfig) -> FixtureConfig:
+        """Trim the stored display name after validation succeeds."""
+        if fixture.name == fixture.name.strip():
+            return fixture
+        data = fixture.as_mapping()
+        data[CONF_FIXTURE_NAME] = fixture.name.strip()
+        return FixtureConfig.from_mapping(data)
+
+    @override
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Create one fixture subentry."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            try:
+                fixture = _fixture_from_input(user_input, str(uuid4()))
+                validate_fixtures([*self._siblings(), fixture])
+            except FixtureValidationError as err:
+                errors["base"] = err.reason
+            else:
+                fixture = self._successful_fixture(fixture)
+                self.hass.config_entries.async_schedule_reload(self._entry_id)
+                return self.async_create_entry(
+                    title=fixture.name,
+                    data=fixture.as_mapping(),
+                    unique_id=fixture.fixture_id,
+                )
+
+        suggested_values = user_input or {
+            CONF_FIXTURE_TYPE: FixtureType.DIMMER.value,
+            CONF_FIXTURE_MINIMUM: 0,
+            CONF_FIXTURE_MAXIMUM: DMX_MAX_VALUE,
+        }
+        return self.async_show_form(
+            step_id="user",
+            data_schema=self._schema(suggested_values),
+            errors=errors,
+        )
+
+    @override
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Reconfigure fixture fields without changing its UUID identity."""
+        entry = self._get_entry()
+        subentry = self._get_reconfigure_subentry()
+        errors: dict[str, str] = {}
+        try:
+            current = _stored_fixture(subentry)
+        except FixtureValidationError as err:
+            current = None
+            errors["base"] = err.reason
+
+        if user_input is not None and current is not None:
+            try:
+                fixture = _fixture_from_input(user_input, current.fixture_id)
+                validate_fixtures(
+                    [
+                        *self._siblings(exclude_subentry_id=subentry.subentry_id),
+                        fixture,
+                    ]
+                )
+            except FixtureValidationError as err:
+                errors["base"] = err.reason
+            else:
+                fixture = self._successful_fixture(fixture)
+                return self.async_update_reload_and_abort(
+                    entry,
+                    subentry,
+                    title=fixture.name,
+                    data=fixture.as_mapping(),
+                )
+
+        suggested_values: Mapping[str, Any] | None
+        if user_input is not None:
+            suggested_values = user_input
+        elif current is not None:
+            suggested_values = current.as_mapping()
+        else:
+            suggested_values = None
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=self._schema(suggested_values),
+            errors=errors,
+        )
+
+
+class UsbDmxOptionsFlow(OptionsFlowWithReload):
+    """Manage entry-wide USB DMX behavior and reload on changes."""
+
+    @override
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Edit startup behavior and clean-shutdown blackout."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            try:
+                startup_behavior = StartupBehavior(user_input[CONF_STARTUP_BEHAVIOR])
+                blackout = user_input[CONF_BLACKOUT_ON_SHUTDOWN]
+                if type(blackout) is not bool:
+                    raise ValueError
+            except KeyError, ValueError:
+                errors["base"] = "invalid_options"
+            else:
+                return self.async_create_entry(
+                    data=dict(self.config_entry.options)
+                    | {
+                        CONF_STARTUP_BEHAVIOR: startup_behavior.value,
+                        CONF_BLACKOUT_ON_SHUTDOWN: blackout,
+                    }
+                )
+
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_STARTUP_BEHAVIOR): SelectSelector(
+                    SelectSelectorConfig(
+                        options=[behavior.value for behavior in StartupBehavior],
+                        mode=SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+                vol.Required(CONF_BLACKOUT_ON_SHUTDOWN): cv.boolean,
+            }
+        )
+        suggested_values = user_input or {
+            CONF_STARTUP_BEHAVIOR: self.config_entry.options.get(
+                CONF_STARTUP_BEHAVIOR, DEFAULT_STARTUP_BEHAVIOR
+            ),
+            CONF_BLACKOUT_ON_SHUTDOWN: self.config_entry.options.get(
+                CONF_BLACKOUT_ON_SHUTDOWN, DEFAULT_BLACKOUT_ON_SHUTDOWN
+            ),
+        }
+        return self.async_show_form(
+            step_id="init",
+            data_schema=self.add_suggested_values_to_schema(schema, suggested_values),
             errors=errors,
         )

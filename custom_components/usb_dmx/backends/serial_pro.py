@@ -80,25 +80,29 @@ class SerialProBackend(DmxBackend):
         self._serial_factory = serial_factory
         self._reader: Any | None = None
         self._writer: _SerialWriter | None = None
+        self._lifecycle_lock = asyncio.Lock()
         self._write_lock = asyncio.Lock()
 
     async def connect(self) -> None:
         """Open the serial device and retain its reader and writer."""
-        if self._writer is not None:
-            return
+        async with self._lifecycle_lock:
+            if self._writer is not None:
+                return
 
-        try:
-            reader, writer = await self._serial_factory(self._path, baudrate=_BAUDRATE)
-        except (OSError, serialx.SerialException) as err:
-            msg = f"Unable to connect to DMX interface at {self._path}"
-            raise BackendConnectionError(msg) from err
+            try:
+                reader, writer = await self._serial_factory(
+                    self._path, baudrate=_BAUDRATE
+                )
+            except (OSError, serialx.SerialException) as err:
+                msg = f"Unable to connect to DMX interface at {self._path}"
+                raise BackendConnectionError(msg) from err
 
-        self._reader = reader
-        self._writer = writer
+            self._reader = reader
+            self._writer = writer
 
     async def disconnect(self) -> None:
         """Close the retained writer idempotently."""
-        async with self._write_lock:
+        async with self._lifecycle_lock, self._write_lock:
             writer = self._writer
             self._reader = None
             self._writer = None

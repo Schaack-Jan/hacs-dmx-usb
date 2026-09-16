@@ -39,6 +39,7 @@ class DmxController:
         self._reconnect_delays = delays
         self._frame = bytearray(DMX_CHANNEL_COUNT)
         self._lock = asyncio.Lock()
+        self._transition_lifecycle_lock = asyncio.Lock()
         self._available = False
         self._stopping = False
         self._availability_listeners: list[AvailabilityListener] = []
@@ -90,7 +91,8 @@ class DmxController:
     async def async_stop(self, *, blackout: bool = False) -> None:
         """Cancel owned work, optionally black out, and close the backend."""
         self._stopping = True
-        await self._cancel_all_transitions()
+        async with self._transition_lifecycle_lock:
+            await self._cancel_all_transitions()
         await self._cancel_reconnect()
 
         if blackout:
@@ -103,8 +105,9 @@ class DmxController:
     async def async_set_channel(self, address: int, value: int) -> None:
         """Set one one-based DMX address and send the complete universe."""
         self._validate_channel(address, value)
-        await self._cancel_transition(address)
-        await self._async_set_channel_value(address, value)
+        async with self._transition_lifecycle_lock:
+            await self._cancel_transition(address)
+            await self._async_set_channel_value(address, value)
 
     async def async_transition_channel(
         self, address: int, value: int, duration: float
@@ -117,19 +120,23 @@ class DmxController:
         if not math.isfinite(duration) or duration < 0:
             msg = "DMX transition duration must be a non-negative number"
             raise ValueError(msg)
-        if duration == 0:
-            await self.async_set_channel(address, value)
-            return
+        async with self._transition_lifecycle_lock:
+            if self._stopping:
+                return
+            if duration == 0:
+                await self._cancel_transition(address)
+                await self._async_set_channel_value(address, value)
+                return
 
-        await self._cancel_transition(address)
-        async with self._lock:
-            start_value = self._frame[address - 1]
+            await self._cancel_transition(address)
+            async with self._lock:
+                start_value = self._frame[address - 1]
 
-        task = self._create_task(
-            self._async_run_transition(address, start_value, value, duration),
-            name=f"usb_dmx_transition_{address}",
-        )
-        self._transition_tasks[address] = task
+            task = self._create_task(
+                self._async_run_transition(address, start_value, value, duration),
+                name=f"usb_dmx_transition_{address}",
+            )
+            self._transition_tasks[address] = task
 
     async def async_send_current_frame(self) -> None:
         """Send an immutable snapshot of the complete current universe."""
@@ -141,8 +148,9 @@ class DmxController:
 
     async def async_blackout(self) -> None:
         """Cancel transitions, set every slot to zero, and send the universe."""
-        await self._cancel_all_transitions()
-        await self._async_blackout_without_task_cancellation()
+        async with self._transition_lifecycle_lock:
+            await self._cancel_all_transitions()
+            await self._async_blackout_without_task_cancellation()
 
     async def _async_blackout_without_task_cancellation(self) -> None:
         async with self._lock:
@@ -227,16 +235,20 @@ class DmxController:
         )
 
     async def _cancel_transition(self, address: int) -> None:
-        task = self._transition_tasks.pop(address, None)
+        task = self._transition_tasks.get(address)
         await self._cancel_task(task)
+        if self._transition_tasks.get(address) is task:
+            self._transition_tasks.pop(address, None)
 
     async def _cancel_all_transitions(self) -> None:
         tasks = tuple(self._transition_tasks.values())
-        self._transition_tasks.clear()
         for task in tasks:
             task.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
+        for address, task in tuple(self._transition_tasks.items()):
+            if task in tasks:
+                self._transition_tasks.pop(address, None)
 
     async def _cancel_reconnect(self) -> None:
         task = self._reconnect_task
@@ -261,6 +273,10 @@ class DmxController:
         if self._available == available:
             return
         self._available = available
+        if available:
+            _LOGGER.info("USB DMX availability recovered")
+        else:
+            _LOGGER.warning("USB DMX availability lost")
         for listener in tuple(self._availability_listeners):
             try:
                 listener(available)

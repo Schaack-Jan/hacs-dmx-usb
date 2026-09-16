@@ -103,6 +103,69 @@ def test_backend_disconnect_is_idempotent() -> None:
     assert writer.calls == ["close", "wait_closed"]
 
 
+def test_concurrent_connects_open_and_retain_only_one_writer() -> None:
+    """Concurrent connects cannot overwrite and leak an opened writer."""
+
+    async def exercise() -> None:
+        first_factory_entered = asyncio.Event()
+        release_first_factory = asyncio.Event()
+        writers: list[_RecordingWriter] = []
+
+        async def serial_factory(
+            *_args: Any, **_kwargs: Any
+        ) -> tuple[object, _RecordingWriter]:
+            writer = _RecordingWriter()
+            writers.append(writer)
+            if len(writers) == 1:
+                first_factory_entered.set()
+                await release_first_factory.wait()
+            return object(), writer
+
+        backend = SerialProBackend("/dev/ttyUSB0", serial_factory)
+        first_connect = asyncio.create_task(backend.connect())
+        await first_factory_entered.wait()
+        second_connect = asyncio.create_task(backend.connect())
+        await asyncio.sleep(0)
+        release_first_factory.set()
+        await asyncio.gather(first_connect, second_connect)
+        await backend.disconnect()
+
+        assert len(writers) == 1
+        assert all(writer.calls == ["close", "wait_closed"] for writer in writers)
+
+    asyncio.run(exercise())
+
+
+def test_disconnect_waits_for_in_progress_connect_and_closes_its_writer() -> None:
+    """A racing disconnect closes the writer produced by an active connect."""
+
+    async def exercise() -> None:
+        factory_entered = asyncio.Event()
+        release_factory = asyncio.Event()
+        writer = _RecordingWriter()
+
+        async def serial_factory(
+            *_args: Any, **_kwargs: Any
+        ) -> tuple[object, _RecordingWriter]:
+            factory_entered.set()
+            await release_factory.wait()
+            return object(), writer
+
+        backend = SerialProBackend("/dev/ttyUSB0", serial_factory)
+        connect = asyncio.create_task(backend.connect())
+        await factory_entered.wait()
+        disconnect = asyncio.create_task(backend.disconnect())
+        await asyncio.sleep(0)
+        release_factory.set()
+        await asyncio.gather(connect, disconnect)
+
+        assert writer.calls == ["close", "wait_closed"]
+        await backend.disconnect()
+        assert writer.calls == ["close", "wait_closed"]
+
+    asyncio.run(exercise())
+
+
 def test_backend_rejects_send_before_connect() -> None:
     """Sending without a live writer reports a focused backend error."""
 

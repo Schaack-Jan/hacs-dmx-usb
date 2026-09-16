@@ -21,6 +21,8 @@ class FakeBackend(DmxBackend):
         """Initialize a connected-state and call recorder."""
         self.connected = False
         self.connect_calls = 0
+        self.connect_failures = 0
+        self.connect_failure_after_open = False
         self.disconnect_calls = 0
         self.reconnect_calls = 0
         self.send_attempts = 0
@@ -36,6 +38,11 @@ class FakeBackend(DmxBackend):
     async def connect(self) -> None:
         """Record a successful connection."""
         self.connect_calls += 1
+        if self.connect_failure_after_open:
+            self.connected = True
+        if self.connect_failures:
+            self.connect_failures -= 1
+            raise BackendConnectionError
         self.connected = True
 
     async def disconnect(self) -> None:

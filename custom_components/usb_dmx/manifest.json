@@ -1,12 +1,13 @@
 {
   "domain": "usb_dmx",
   "name": "USB DMX",
-  "codeowners": [],
+  "codeowners": ["@Schaack-Jan"],
   "config_flow": true,
-  "dependencies": [],
-  "documentation": "https://github.com/JanSchaack/usb-dmx",
+  "dependencies": ["usb"],
+  "documentation": "https://github.com/Schaack-Jan/hacs-dmx-usb",
   "integration_type": "hub",
   "iot_class": "local_push",
-  "requirements": ["serialx==1.10.0"],
+  "issue_tracker": "https://github.com/Schaack-Jan/hacs-dmx-usb/issues",
+  "requirements": [],
   "version": "0.1.0"
 }

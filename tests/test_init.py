@@ -66,6 +66,7 @@ async def test_setup_connects_before_forwarding_and_stores_runtime(
         forwarded_entry: MockConfigEntry, platforms: tuple[Platform, ...]
     ) -> None:
         assert backend.connected
+        assert backend.frames == [bytes(512)]
         assert forwarded_entry.runtime_data.backend is backend
         assert platforms == (Platform.LIGHT, Platform.NUMBER)
 
@@ -107,6 +108,7 @@ async def test_missing_startup_option_defaults_runtime_to_restore(
         await async_setup_entry(hass, entry)
 
     assert entry.runtime_data.startup_behavior is StartupBehavior.RESTORE
+    assert backend.frames == [bytes(512)]
 
 
 async def test_configured_zero_startup_is_stored_in_runtime(
@@ -129,7 +131,7 @@ async def test_configured_zero_startup_is_stored_in_runtime(
 
     assert entry.runtime_data.startup_behavior is StartupBehavior.ZERO
     assert entry.runtime_data.controller.current_frame == bytes(512)
-    assert backend.frames == []
+    assert backend.frames == [bytes(512)]
 
 
 async def test_initial_connection_failure_is_not_ready_and_cleans_up(
@@ -154,6 +156,34 @@ async def test_initial_connection_failure_is_not_ready_and_cleans_up(
         await async_setup_entry(hass, entry)
 
     assert backend.disconnect_calls == 1
+    assert not backend.connected
+    assert not hasattr(entry, "runtime_data")
+    assert backend.frames == []
+    forward_mock.assert_not_awaited()
+
+
+async def test_initial_zero_frame_failure_is_not_ready_and_never_forwards(
+    hass: HomeAssistant,
+) -> None:
+    """Setup cannot expose entities before a physical zero frame succeeds."""
+    entry = _entry()
+    backend = FakeBackend()
+    backend.send_failures = 1
+
+    with (
+        patch(
+            "custom_components.usb_dmx.async_create_backend",
+            AsyncMock(return_value=backend),
+        ),
+        patch.object(
+            hass.config_entries, "async_forward_entry_setups", new=AsyncMock()
+        ) as forward_mock,
+        pytest.raises(ConfigEntryNotReady),
+    ):
+        await async_setup_entry(hass, entry)
+
+    assert backend.send_attempts == 1
+    assert backend.frames == []
     assert not backend.connected
     assert not hasattr(entry, "runtime_data")
     forward_mock.assert_not_awaited()
@@ -183,6 +213,7 @@ async def test_platform_forward_failure_cleans_up_partial_runtime(
     assert backend.disconnect_calls == 1
     assert not backend.connected
     assert not hasattr(entry, "runtime_data")
+    assert backend.frames == [bytes(512)]
 
 
 @pytest.mark.parametrize("blackout", [False, True])
@@ -245,7 +276,7 @@ async def test_platform_unload_failure_keeps_runtime_connected(
         assert not await async_unload_entry(hass, entry)
 
     assert backend.disconnect_calls == 0
-    assert backend.frames == []
+    assert backend.frames == [bytes(512)]
     assert entry.runtime_data.controller.available
 
 
@@ -275,5 +306,5 @@ async def test_missing_options_default_to_no_shutdown_blackout(
     ):
         assert await async_unload_entry(hass, entry)
 
-    assert backend.frames == [bytes((123,)) + bytes(511)]
+    assert backend.frames == [bytes(512), bytes((123,)) + bytes(511)]
     assert backend.disconnect_calls == 1

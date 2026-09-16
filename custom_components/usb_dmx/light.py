@@ -16,8 +16,8 @@ from homeassistant.const import STATE_OFF, STATE_ON
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from . import UsbDmxConfigEntry
-from .const import DMX_MAX_VALUE, SUBENTRY_TYPE_FIXTURE
-from .entity import UsbDmxEntity, fixture_from_subentry, get_interface_device
+from .const import DMX_MAX_VALUE
+from .entity import UsbDmxEntity, fixtures_from_entry, get_interface_device
 from .models import FixtureConfig, FixtureType, StartupBehavior
 
 if TYPE_CHECKING:
@@ -33,10 +33,7 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up every dimmer fixture with its exact subentry owner."""
-    fixtures = [
-        (subentry, fixture_from_subentry(subentry))
-        for subentry in entry.get_subentries_of_type(SUBENTRY_TYPE_FIXTURE)
-    ]
+    fixtures = fixtures_from_entry(entry)
     dimmers = [
         (subentry, fixture)
         for subentry, fixture in fixtures
@@ -91,10 +88,13 @@ class UsbDmxDimmer(UsbDmxEntity, LightEntity, RestoreEntity):
     @override
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on at an explicit, remembered, or full brightness."""
-        brightness = kwargs.get(ATTR_BRIGHTNESS, self._attr_brightness or DMX_MAX_VALUE)
+        brightness = kwargs.get(ATTR_BRIGHTNESS)
+        if brightness is None:
+            brightness = self._attr_brightness or DMX_MAX_VALUE
         self._validate_brightness(brightness)
         transition = self._validated_transition(kwargs)
         await self._async_apply_brightness(brightness, transition=transition)
+        self._async_write_state_if_added()
 
     @override
     async def async_turn_off(self, **kwargs: Any) -> None:
@@ -102,6 +102,7 @@ class UsbDmxDimmer(UsbDmxEntity, LightEntity, RestoreEntity):
         transition = self._validated_transition(kwargs)
         self._attr_is_on = False
         await self._async_write_dmx(0, transition=transition)
+        self._async_write_state_if_added()
 
     async def _async_apply_brightness(
         self, brightness: int, *, transition: float | None

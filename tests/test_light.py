@@ -25,6 +25,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import State
 from homeassistant.helpers import entity_registry as er
+from pytest_homeassistant_custom_component.common import mock_restore_cache
 
 from custom_components.usb_dmx import UsbDmxRuntime
 from custom_components.usb_dmx.const import DOMAIN
@@ -64,6 +65,7 @@ async def _runtime_entry(
     backend = backend or FakeBackend()
     controller = DmxController(backend, reconnect_delays=(0,))
     await controller.async_start()
+    await controller.async_send_current_frame()
     entry.runtime_data = UsbDmxRuntime(controller, backend, startup_behavior)
     return backend, controller
 
@@ -206,19 +208,19 @@ async def test_default_mapping_last_nonzero_and_off_semantics(
     assert not entity.is_on
     assert entity.brightness == 1
 
-    await entity.async_turn_on()
+    await entity.async_turn_on(**{ATTR_BRIGHTNESS: None})
     assert entity.is_on
     assert entity.brightness == 1
     assert backend.frames[-1][0] == 0
 
     fresh = UsbDmxDimmer(_fixture(fixture_id=SECOND_DIMMER_ID, address=2), entry)
-    await fresh.async_turn_on()
+    await fresh.async_turn_on(**{ATTR_BRIGHTNESS: None})
     assert fresh.brightness == 255
     assert backend.frames[-1][1] == 255
     await controller.async_stop()
 
 
-@pytest.mark.parametrize("brightness", [True, 1.0, -1, 256, "1", None])
+@pytest.mark.parametrize("brightness", [True, 1.0, -1, 256, "1"])
 async def test_direct_light_methods_reject_malformed_brightness(
     make_fixture_subentry: Callable[..., ConfigSubentry],
     make_usb_dmx_entry: Callable[..., MockConfigEntry],
@@ -233,7 +235,7 @@ async def test_direct_light_methods_reject_malformed_brightness(
         await entity.async_turn_on(**{ATTR_BRIGHTNESS: brightness})
 
     assert controller.current_frame == bytes(512)
-    assert backend.frames == []
+    assert backend.frames == [bytes(512)]
     await controller.async_stop()
 
 
@@ -278,7 +280,7 @@ async def test_direct_light_methods_reject_invalid_transitions(
     with pytest.raises((TypeError, ValueError), match="transition"):
         await entity.async_turn_off(**{ATTR_TRANSITION: transition})
 
-    assert backend.frames == []
+    assert backend.frames == [bytes(512)]
     await controller.async_stop()
 
 
@@ -316,7 +318,7 @@ async def test_restore_ignores_unknown_or_malformed_state_without_sending(
     ):
         await entity.async_added_to_hass()
 
-    assert backend.frames == []
+    assert backend.frames == [bytes(512)]
     assert controller.current_frame == bytes(512)
     assert not entity.is_on
     assert entity.brightness is None
@@ -392,7 +394,7 @@ async def test_zero_startup_does_not_read_or_send_restore_state(
     ):
         await entity.async_added_to_hass()
 
-    assert backend.frames == []
+    assert backend.frames == [bytes(512)]
     assert controller.current_frame == bytes(512)
     assert not entity.is_on
     await controller.async_stop()
@@ -462,6 +464,194 @@ async def test_transport_availability_updates_ha_and_listener_cleanup_on_reload(
         assert len(second_controller._availability_listeners) == 0
 
 
+async def test_light_services_publish_direct_state_immediately(
+    hass: HomeAssistant,
+    make_fixture_subentry: Callable[..., ConfigSubentry],
+    make_usb_dmx_entry: Callable[..., MockConfigEntry],
+) -> None:
+    """Successful direct commands immediately update Home Assistant state."""
+    fixture = make_fixture_subentry(fixture_id=DIMMER_ID, name="Front", address=1)
+    entry = make_usb_dmx_entry(fixture, startup_behavior=StartupBehavior.ZERO)
+    entry.add_to_hass(hass)
+    backend = FakeBackend()
+
+    with (
+        patch(
+            "custom_components.usb_dmx.async_create_backend",
+            AsyncMock(return_value=backend),
+        ),
+        patch("custom_components.usb_dmx.PLATFORMS", (Platform.LIGHT,)),
+    ):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        registry = er.async_get(hass)
+        entity_id = registry.async_get_entity_id(
+            "light", DOMAIN, f"{entry.entry_id}_{DIMMER_ID}"
+        )
+        assert entity_id is not None
+
+        await hass.services.async_call(
+            "light",
+            "turn_on",
+            {ATTR_BRIGHTNESS: 91},
+            target={"entity_id": entity_id},
+            blocking=True,
+        )
+        state = hass.states.get(entity_id)
+        assert state is not None
+        assert state.state == STATE_ON
+        assert state.attributes[ATTR_BRIGHTNESS] == 91
+
+        await hass.services.async_call(
+            "light",
+            "turn_off",
+            target={"entity_id": entity_id},
+            blocking=True,
+        )
+        state = hass.states.get(entity_id)
+        assert state is not None
+        assert state.state == STATE_OFF
+
+        assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_light_transition_service_publishes_target_state_immediately(
+    hass: HomeAssistant,
+    make_fixture_subentry: Callable[..., ConfigSubentry],
+    make_usb_dmx_entry: Callable[..., MockConfigEntry],
+) -> None:
+    """An admitted transition publishes its requested HA state immediately."""
+    fixture = make_fixture_subentry(fixture_id=DIMMER_ID, name="Front", address=1)
+    entry = make_usb_dmx_entry(fixture, startup_behavior=StartupBehavior.ZERO)
+    entry.add_to_hass(hass)
+    backend = FakeBackend()
+
+    with (
+        patch(
+            "custom_components.usb_dmx.async_create_backend",
+            AsyncMock(return_value=backend),
+        ),
+        patch("custom_components.usb_dmx.PLATFORMS", (Platform.LIGHT,)),
+    ):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        registry = er.async_get(hass)
+        entity_id = registry.async_get_entity_id(
+            "light", DOMAIN, f"{entry.entry_id}_{DIMMER_ID}"
+        )
+        assert entity_id is not None
+
+        await hass.services.async_call(
+            "light",
+            "turn_on",
+            {ATTR_BRIGHTNESS: 200, ATTR_TRANSITION: 0.2},
+            target={"entity_id": entity_id},
+            blocking=True,
+        )
+        state = hass.states.get(entity_id)
+        assert state is not None
+        assert state.state == STATE_ON
+        assert state.attributes[ATTR_BRIGHTNESS] == 200
+        assert entry.runtime_data.controller.current_frame[0] < 200
+
+        await hass.services.async_call(
+            "light",
+            "turn_off",
+            {ATTR_TRANSITION: 0.2},
+            target={"entity_id": entity_id},
+            blocking=True,
+        )
+        state = hass.states.get(entity_id)
+        assert state is not None
+        assert state.state == STATE_OFF
+
+        assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+@pytest.mark.parametrize(
+    ("startup_behavior", "restored", "expected_values", "expected_state"),
+    [
+        (
+            StartupBehavior.ZERO,
+            State(
+                "light.studio_interface_front",
+                STATE_ON,
+                {ATTR_BRIGHTNESS: 128},
+            ),
+            [0],
+            STATE_OFF,
+        ),
+        (StartupBehavior.RESTORE, None, [0], STATE_OFF),
+        (
+            StartupBehavior.RESTORE,
+            State(
+                "light.studio_interface_front",
+                STATE_OFF,
+                {ATTR_BRIGHTNESS: 77},
+            ),
+            [0],
+            STATE_OFF,
+        ),
+        (
+            StartupBehavior.RESTORE,
+            State(
+                "light.studio_interface_front",
+                STATE_ON,
+                {ATTR_BRIGHTNESS: "invalid"},
+            ),
+            [0],
+            STATE_OFF,
+        ),
+        (
+            StartupBehavior.RESTORE,
+            State(
+                "light.studio_interface_front",
+                STATE_ON,
+                {ATTR_BRIGHTNESS: 128},
+            ),
+            [0, 128],
+            STATE_ON,
+        ),
+    ],
+)
+async def test_startup_sends_zero_before_optional_restore(
+    hass: HomeAssistant,
+    make_fixture_subentry: Callable[..., ConfigSubentry],
+    make_usb_dmx_entry: Callable[..., MockConfigEntry],
+    *,
+    startup_behavior: StartupBehavior,
+    restored: State | None,
+    expected_values: list[int],
+    expected_state: str,
+) -> None:
+    """Physical output is zeroed before any optional valid restore write."""
+    fixture = make_fixture_subentry(fixture_id=DIMMER_ID, name="Front", address=1)
+    entry = make_usb_dmx_entry(fixture, startup_behavior=startup_behavior)
+    entry.add_to_hass(hass)
+    backend = FakeBackend()
+    mock_restore_cache(hass, [restored] if restored is not None else [])
+
+    with (
+        patch(
+            "custom_components.usb_dmx.async_create_backend",
+            AsyncMock(return_value=backend),
+        ),
+        patch("custom_components.usb_dmx.PLATFORMS", (Platform.LIGHT,)),
+    ):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        registry = er.async_get(hass)
+        entity_id = registry.async_get_entity_id(
+            "light", DOMAIN, f"{entry.entry_id}_{DIMMER_ID}"
+        )
+        assert entity_id is not None
+
+        assert [frame[0] for frame in backend.frames] == expected_values
+        assert all(frame[1:] == bytes(511) for frame in backend.frames)
+        state = hass.states.get(entity_id)
+        assert state is not None
+        assert state.state == expected_state
+
+        assert await hass.config_entries.async_unload(entry.entry_id)
+
+
 @pytest.mark.parametrize("mismatch", [False, True])
 async def test_platform_rejects_malformed_fixture_identity(
     hass: HomeAssistant,
@@ -479,6 +669,65 @@ async def test_platform_rejects_malformed_fixture_identity(
     add_entities = MagicMock()
 
     with pytest.raises(FixtureValidationError, match="invalid_fixture"):
+        await async_setup_entry(hass, entry, add_entities)
+
+    add_entities.assert_not_called()
+    await entry.runtime_data.controller.async_stop()
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "reason"),
+    [
+        (
+            {"fixture_id": DIMMER_ID, "name": "Front", "address": 1},
+            {
+                "fixture_id": RAW_ID,
+                "fixture_type": "raw",
+                "name": "Relay",
+                "address": 1,
+            },
+            "duplicate_address",
+        ),
+        (
+            {"fixture_id": DIMMER_ID, "name": "Front", "address": 1},
+            {
+                "fixture_id": RAW_ID,
+                "fixture_type": "raw",
+                "name": " front ",
+                "address": 2,
+            },
+            "duplicate_name",
+        ),
+        (
+            {"fixture_id": DIMMER_ID, "name": "Front", "address": 1},
+            {
+                "fixture_id": DIMMER_ID,
+                "fixture_type": "raw",
+                "name": "Relay",
+                "address": 2,
+            },
+            "invalid_fixture",
+        ),
+    ],
+)
+async def test_light_platform_validates_complete_fixture_collection_before_filter(
+    hass: HomeAssistant,
+    make_fixture_subentry: Callable[..., ConfigSubentry],
+    make_usb_dmx_entry: Callable[..., MockConfigEntry],
+    *,
+    first: dict[str, Any],
+    second: dict[str, Any],
+    reason: str,
+) -> None:
+    """Corrupt sibling collisions abort setup before any light is added."""
+    stored_first = make_fixture_subentry(**first)
+    stored_second = make_fixture_subentry(**second)
+    entry = make_usb_dmx_entry(stored_first, stored_second)
+    entry.add_to_hass(hass)
+    await _runtime_entry(entry)
+    add_entities = MagicMock()
+
+    with pytest.raises(FixtureValidationError, match=reason):
         await async_setup_entry(hass, entry, add_entities)
 
     add_entities.assert_not_called()

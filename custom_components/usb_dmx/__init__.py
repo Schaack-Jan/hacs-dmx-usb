@@ -65,9 +65,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: UsbDmxConfigEntry) -> bo
 
     try:
         await controller.async_start()
+        await controller.async_send_current_frame()
     except BackendError as err:
         await controller.async_stop()
         raise ConfigEntryNotReady from err
+    if not controller.available:
+        await controller.async_stop()
+        msg = "Unable to send initial DMX zero frame"
+        raise ConfigEntryNotReady(msg)
 
     entry.runtime_data = UsbDmxRuntime(
         controller=controller,

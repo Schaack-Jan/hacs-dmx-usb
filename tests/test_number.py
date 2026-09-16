@@ -52,6 +52,7 @@ async def _runtime_entry(
     backend = FakeBackend()
     controller = DmxController(backend)
     await controller.async_start()
+    await controller.async_send_current_frame()
     entry.runtime_data = UsbDmxRuntime(controller, backend, StartupBehavior.ZERO)
     return backend, controller
 
@@ -120,8 +121,10 @@ async def test_number_and_light_share_one_physical_device(
     make_usb_dmx_entry: Callable[..., MockConfigEntry],
 ) -> None:
     """Both platforms attach their stable entities to one interface device."""
-    dimmer = make_fixture_subentry(fixture_id=DIMMER_ID)
-    raw = make_fixture_subentry(fixture_id=RAW_ID, fixture_type="raw", address=20)
+    dimmer = make_fixture_subentry(fixture_id=DIMMER_ID, name="Front")
+    raw = make_fixture_subentry(
+        fixture_id=RAW_ID, fixture_type="raw", name="Relay", address=20
+    )
     entry = make_usb_dmx_entry(dimmer, raw)
     entry.add_to_hass(hass)
     _, controller = await _runtime_entry(entry)
@@ -205,7 +208,7 @@ async def test_raw_channel_rejects_nonintegral_or_out_of_range_values(
 
     assert entity.native_value == 0
     assert controller.current_frame == bytes(512)
-    assert backend.frames == []
+    assert backend.frames == [bytes(512)]
     await controller.async_stop()
 
 
@@ -247,6 +250,29 @@ async def test_number_platform_rejects_mismatched_fixture_identity(
     await entry.runtime_data.controller.async_stop()
 
 
+async def test_number_platform_validates_dimmer_collisions_before_filter(
+    hass: HomeAssistant,
+    make_fixture_subentry: Callable[..., ConfigSubentry],
+    make_usb_dmx_entry: Callable[..., MockConfigEntry],
+) -> None:
+    """A collision among filtered-out dimmers still aborts number setup."""
+    first = make_fixture_subentry(fixture_id=DIMMER_ID, name="Front", address=1)
+    second = make_fixture_subentry(fixture_id=SECOND_RAW_ID, name="Back", address=1)
+    raw = make_fixture_subentry(
+        fixture_id=RAW_ID, fixture_type="raw", name="Relay", address=20
+    )
+    entry = make_usb_dmx_entry(first, second, raw)
+    entry.add_to_hass(hass)
+    await _runtime_entry(entry)
+    add_entities = MagicMock()
+
+    with pytest.raises(FixtureValidationError, match="duplicate_address"):
+        await async_setup_entry(hass, entry, add_entities)
+
+    add_entities.assert_not_called()
+    await entry.runtime_data.controller.async_stop()
+
+
 async def test_loaded_subentry_deletion_removes_owned_entity_only(
     hass: HomeAssistant,
     make_fixture_subentry: Callable[..., ConfigSubentry],
@@ -266,6 +292,7 @@ async def test_loaded_subentry_deletion_removes_owned_entity_only(
         AsyncMock(return_value=backend),
     ):
         assert await hass.config_entries.async_setup(entry.entry_id)
+        controller = entry.runtime_data.controller
         devices = dr.async_entries_for_config_entry(dr.async_get(hass), entry.entry_id)
         assert len(devices) == 1
         assert devices[0].config_subentry_id is None
@@ -292,7 +319,8 @@ async def test_loaded_subentry_deletion_removes_owned_entity_only(
             target={"entity_id": number_id},
             blocking=True,
         )
-        assert entry.runtime_data.controller.current_frame[19] == 255
+        assert controller.current_frame[19] == 255
+        assert len(controller._availability_listeners) == 2
 
         assert hass.config_entries.async_remove_subentry(entry, raw.subentry_id)
         await hass.async_block_till_done()
@@ -303,5 +331,110 @@ async def test_loaded_subentry_deletion_removes_owned_entity_only(
         assert registry.async_get(number_id) is None
         assert hass.states.get(light_id) is not None
         assert registry.async_get(light_id) is not None
+        assert controller.current_frame[19] == 0
+        assert backend.frames[-1][19] == 0
+        assert len(controller._availability_listeners) == 1
+
+        await hass.services.async_call(
+            "light",
+            "turn_on",
+            {"brightness": 128},
+            target={"entity_id": light_id},
+            blocking=True,
+        )
+        assert backend.frames[-1][0] == 128
+        assert backend.frames[-1][19] == 0
+
+        assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_normal_unload_preserves_fixture_slot_without_blackout(
+    hass: HomeAssistant,
+    make_fixture_subentry: Callable[..., ConfigSubentry],
+    make_usb_dmx_entry: Callable[..., MockConfigEntry],
+) -> None:
+    """Platform unload does not clear a fixture whose subentry still exists."""
+    raw = make_fixture_subentry(
+        fixture_id=RAW_ID, fixture_type="raw", name="Relay", address=20
+    )
+    entry = make_usb_dmx_entry(raw, startup_behavior=StartupBehavior.ZERO)
+    entry.add_to_hass(hass)
+    backend = FakeBackend()
+
+    with patch(
+        "custom_components.usb_dmx.async_create_backend",
+        AsyncMock(return_value=backend),
+    ):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        registry = er.async_get(hass)
+        entity_id = registry.async_get_entity_id(
+            "number", DOMAIN, f"{entry.entry_id}_{RAW_ID}"
+        )
+        assert entity_id is not None
+        controller = entry.runtime_data.controller
+
+        await hass.services.async_call(
+            "number",
+            "set_value",
+            {"value": 255},
+            target={"entity_id": entity_id},
+            blocking=True,
+        )
+        frames_before = list(backend.frames)
+
+        assert await hass.config_entries.async_unload(entry.entry_id)
+
+        assert raw.subentry_id in entry.subentries
+        assert controller.current_frame[19] == 255
+        assert backend.frames == frames_before
+
+
+async def test_number_service_publishes_value_and_rejection_writes_nothing(
+    hass: HomeAssistant,
+    make_fixture_subentry: Callable[..., ConfigSubentry],
+    make_usb_dmx_entry: Callable[..., MockConfigEntry],
+) -> None:
+    """Accepted values update HA immediately while rejected values do not write."""
+    raw = make_fixture_subentry(
+        fixture_id=RAW_ID, fixture_type="raw", name="Relay", address=20
+    )
+    entry = make_usb_dmx_entry(raw, startup_behavior=StartupBehavior.ZERO)
+    entry.add_to_hass(hass)
+    backend = FakeBackend()
+
+    with patch(
+        "custom_components.usb_dmx.async_create_backend",
+        AsyncMock(return_value=backend),
+    ):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        registry = er.async_get(hass)
+        entity_id = registry.async_get_entity_id(
+            "number", DOMAIN, f"{entry.entry_id}_{RAW_ID}"
+        )
+        assert entity_id is not None
+
+        await hass.services.async_call(
+            "number",
+            "set_value",
+            {"value": 42},
+            target={"entity_id": entity_id},
+            blocking=True,
+        )
+        state = hass.states.get(entity_id)
+        assert state is not None
+        assert state.state == "42"
+
+        frames_before = list(backend.frames)
+        state_before = state
+        with pytest.raises(ValueError, match="value"):
+            await hass.services.async_call(
+                "number",
+                "set_value",
+                {"value": 1.5},
+                target={"entity_id": entity_id},
+                blocking=True,
+            )
+        assert backend.frames == frames_before
+        assert hass.states.get(entity_id) is state_before
 
         assert await hass.config_entries.async_unload(entry.entry_id)

@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING, override
 from homeassistant.components.number import NumberEntity, NumberMode
 
 from . import UsbDmxConfigEntry
-from .const import DMX_MAX_VALUE, SUBENTRY_TYPE_FIXTURE
-from .entity import UsbDmxEntity, fixture_from_subentry, get_interface_device
+from .const import DMX_MAX_VALUE
+from .entity import UsbDmxEntity, fixtures_from_entry, get_interface_device
 from .models import FixtureConfig, FixtureType
 
 if TYPE_CHECKING:
@@ -23,10 +23,7 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up every raw fixture with its exact subentry owner."""
-    fixtures = [
-        (subentry, fixture_from_subentry(subentry))
-        for subentry in entry.get_subentries_of_type(SUBENTRY_TYPE_FIXTURE)
-    ]
+    fixtures = fixtures_from_entry(entry)
     raw_channels = [
         (subentry, fixture)
         for subentry, fixture in fixtures
@@ -76,3 +73,4 @@ class UsbDmxRawChannel(UsbDmxEntity, NumberEntity):
             msg = "value must be an integer between 0 and 255"
             raise ValueError(msg)
         await self.controller.async_set_channel(self.fixture.address, integer_value)
+        self._async_write_state_if_added()

@@ -459,31 +459,34 @@ class UsbDmxConfigFlow(ConfigFlow, domain=DOMAIN):
                     path=path, interface_id=None
                 ):
                     errors["base"] = "already_configured"
-                elif await self._async_is_device_configured(
-                    path, exclude_entry_id=entry.entry_id
-                ):
-                    self._release_flow_identity()
-                    errors["base"] = "already_configured"
                 else:
                     try:
-                        valid = await self._async_validate_connection(connection_data)
-                        if valid:
-                            if await self._async_is_device_configured(
-                                path, exclude_entry_id=entry.entry_id
-                            ):
-                                self._release_flow_identity()
-                                errors["base"] = "already_configured"
-                            else:
-                                return self.async_update_reload_and_abort(
-                                    entry,
-                                    data_updates={
-                                        CONF_BACKEND: user_input[CONF_BACKEND],
-                                        CONF_DEVICE: path,
-                                    },
-                                )
-                        else:
+                        if await self._async_is_device_configured(
+                            path, exclude_entry_id=entry.entry_id
+                        ):
                             self._release_flow_identity()
-                            errors["base"] = "cannot_connect"
+                            errors["base"] = "already_configured"
+                        else:
+                            valid = await self._async_validate_connection(
+                                connection_data
+                            )
+                            if valid:
+                                if await self._async_is_device_configured(
+                                    path, exclude_entry_id=entry.entry_id
+                                ):
+                                    self._release_flow_identity()
+                                    errors["base"] = "already_configured"
+                                else:
+                                    return self.async_update_reload_and_abort(
+                                        entry,
+                                        data_updates={
+                                            CONF_BACKEND: user_input[CONF_BACKEND],
+                                            CONF_DEVICE: path,
+                                        },
+                                    )
+                            else:
+                                self._release_flow_identity()
+                                errors["base"] = "cannot_connect"
                     except BaseException:
                         self._release_flow_identity()
                         raise

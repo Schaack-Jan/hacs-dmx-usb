@@ -852,3 +852,78 @@ async def test_reconfigure_excludes_current_entry_from_device_duplicates(
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reconfigure_successful"
     assert entry.data[CONF_DEVICE] == str(device)
+
+
+async def _assert_reconfigure_exception_releases_reservation(
+    hass: HomeAssistant, failure: BaseException
+) -> None:
+    """Exercise one exceptional post-reservation reconfigure exit."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_BACKEND: BACKEND_SERIAL_PRO,
+            CONF_DEVICE: "/dev/ttyUSB0",
+            CONF_INTERFACE_ID: "current-interface",
+        },
+        unique_id="current-interface",
+    )
+    entry.add_to_hass(hass)
+    backend = FakeBackend()
+
+    with (
+        patch(
+            "custom_components.usb_dmx.config_flow._async_scan_serial_ports",
+            AsyncMock(return_value=[]),
+        ),
+        patch(
+            "custom_components.usb_dmx.config_flow._async_get_stable_path",
+            AsyncMock(side_effect=lambda _hass, path: path),
+        ),
+        patch(
+            "custom_components.usb_dmx.config_flow.UsbDmxConfigFlow._async_is_device_configured",
+            AsyncMock(side_effect=[False, failure, False, False, False]),
+        ),
+        patch(
+            "custom_components.usb_dmx.config_flow.async_create_backend",
+            AsyncMock(return_value=backend),
+        ),
+    ):
+        reconfigure = await entry.start_reconfigure_flow(hass)
+        with pytest.raises(type(failure)):
+            await hass.config_entries.flow.async_configure(
+                reconfigure["flow_id"],
+                {
+                    CONF_BACKEND: BACKEND_SERIAL_PRO,
+                    CONF_DEVICE: "/dev/ttyUSB1",
+                },
+            )
+
+        user = await _start_user_flow(hass)
+        manual = await hass.config_entries.flow.async_configure(
+            user["flow_id"],
+            {CONF_BACKEND: BACKEND_SERIAL_PRO, CONF_DEVICE: MANUAL_PATH},
+        )
+        result = await hass.config_entries.flow.async_configure(
+            manual["flow_id"],
+            {CONF_BACKEND: BACKEND_SERIAL_PRO, CONF_DEVICE: "/dev/ttyUSB1"},
+        )
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
+async def test_reconfigure_cancellation_releases_device_reservation(
+    hass: HomeAssistant,
+) -> None:
+    """Cancellation after reservation cannot block a later manual flow."""
+    await _assert_reconfigure_exception_releases_reservation(
+        hass, asyncio.CancelledError()
+    )
+
+
+async def test_reconfigure_runtime_error_releases_device_reservation(
+    hass: HomeAssistant,
+) -> None:
+    """A runtime error after reservation cannot block a later manual flow."""
+    await _assert_reconfigure_exception_releases_reservation(
+        hass, RuntimeError("duplicate check failed")
+    )

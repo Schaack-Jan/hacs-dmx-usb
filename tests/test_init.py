@@ -21,8 +21,10 @@ from custom_components.usb_dmx.const import (
     CONF_BLACKOUT_ON_SHUTDOWN,
     CONF_DEVICE,
     CONF_INTERFACE_ID,
+    CONF_STARTUP_BEHAVIOR,
     DOMAIN,
 )
+from custom_components.usb_dmx.models import StartupBehavior
 
 from .fakes import FakeBackend
 
@@ -30,8 +32,17 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
 
-def _entry(*, blackout: bool | None = False) -> MockConfigEntry:
+def _entry(
+    *,
+    blackout: bool | None = False,
+    startup_behavior: StartupBehavior | None = None,
+) -> MockConfigEntry:
     """Build a representative USB DMX config entry."""
+    options = {}
+    if blackout is not None:
+        options[CONF_BLACKOUT_ON_SHUTDOWN] = blackout
+    if startup_behavior is not None:
+        options[CONF_STARTUP_BEHAVIOR] = startup_behavior.value
     return MockConfigEntry(
         domain=DOMAIN,
         data={
@@ -39,7 +50,7 @@ def _entry(*, blackout: bool | None = False) -> MockConfigEntry:
             CONF_DEVICE: "/dev/serial/by-id/dmx-test",
             CONF_INTERFACE_ID: "dmx-test",
         },
-        options=({} if blackout is None else {CONF_BLACKOUT_ON_SHUTDOWN: blackout}),
+        options=options,
         unique_id="dmx-test",
     )
 
@@ -75,6 +86,50 @@ async def test_setup_connects_before_forwarding_and_stores_runtime(
     assert entry.runtime_data.backend is backend
     assert entry.runtime_data.controller.available
     forward_mock.assert_awaited_once()
+
+
+async def test_missing_startup_option_defaults_runtime_to_restore(
+    hass: HomeAssistant,
+) -> None:
+    """A legacy entry without startup options exposes RESTORE to Task 5 entities."""
+    entry = _entry(blackout=None)
+    backend = FakeBackend()
+
+    with (
+        patch(
+            "custom_components.usb_dmx.async_create_backend",
+            AsyncMock(return_value=backend),
+        ),
+        patch.object(
+            hass.config_entries, "async_forward_entry_setups", new=AsyncMock()
+        ),
+    ):
+        await async_setup_entry(hass, entry)
+
+    assert entry.runtime_data.startup_behavior is StartupBehavior.RESTORE
+
+
+async def test_configured_zero_startup_is_stored_in_runtime(
+    hass: HomeAssistant,
+) -> None:
+    """The ZERO option reaches runtime without mutating controller state."""
+    entry = _entry(startup_behavior=StartupBehavior.ZERO)
+    backend = FakeBackend()
+
+    with (
+        patch(
+            "custom_components.usb_dmx.async_create_backend",
+            AsyncMock(return_value=backend),
+        ),
+        patch.object(
+            hass.config_entries, "async_forward_entry_setups", new=AsyncMock()
+        ),
+    ):
+        await async_setup_entry(hass, entry)
+
+    assert entry.runtime_data.startup_behavior is StartupBehavior.ZERO
+    assert entry.runtime_data.controller.current_frame == bytes(512)
+    assert backend.frames == []
 
 
 async def test_initial_connection_failure_is_not_ready_and_cleans_up(

@@ -17,8 +17,10 @@ those requirements into a release-ready V1.
 - Minimum Home Assistant version: `2026.9.0`.
 - Initial integration version: `0.1.0`.
 - Python follows the version bundled with Home Assistant 2026.9.
-- `serialx==1.10.0` is the only runtime dependency. This is the version pinned
-  by Home Assistant Core 2026.9.2 and provides native asyncio serial I/O.
+- `serialx==1.10.0` is the only protocol runtime dependency. Home Assistant
+  Core 2026.9.2 already pins it through the built-in `usb` integration, so the
+  custom manifest declares `dependencies: ["usb"]` and does not request a
+  second installation.
 - HACS repository type: Integration, one directory under `custom_components`.
 
 ## V1 hardware scope
@@ -73,8 +75,10 @@ packets as:
 0x7E | label 0x06 | payload length LE | start code 0x00 + 512 slots | 0xE7
 ```
 
-It opens the path with `serialx.async_serial_for_url`, performs no blocking I/O
-in the Home Assistant event loop, serializes writes, and closes idempotently.
+It opens the path with `serialx.open_serial_connection`, performs no blocking
+I/O in the Home Assistant event loop, serializes `writer.write()` plus
+`writer.drain()`, and closes idempotently with `writer.close()` and
+`await writer.wait_closed()`.
 The protocol-class backend declares hardware refresh, so normal operation sends
 on change rather than running a 40 Hz Home Assistant task.
 

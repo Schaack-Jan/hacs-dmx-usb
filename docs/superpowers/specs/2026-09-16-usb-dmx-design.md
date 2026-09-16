@@ -86,16 +86,23 @@ preserving the config entry identity. USB discovery always requires explicit
 user confirmation and derives a unique ID from a device serial number when
 available, otherwise from a normalized stable path.
 
-The options flow stores mutable settings and fixtures:
+Home Assistant 2026.9 config subentries are the native owner for repeated
+logical children. Each fixture is therefore stored as one `fixture` config
+subentry containing its immutable UUID, type, name, address, minimum, and
+maximum. The config flow advertises `FixtureSubentryFlow` through
+`async_get_supported_subentry_types`; its `user` step creates fixtures and its
+`reconfigure` step edits them without changing identity. The Home Assistant
+frontend and config-entry manager provide deletion and registry cleanup.
+
+The options flow stores only entry-wide mutable settings:
 
 - startup behavior (`restore` by default or `zero`)
 - blackout on clean shutdown (`false` by default)
-- fixture list containing UUID, type, name, address, minimum, and maximum
-
-The options flow is a menu for settings plus add/edit/delete fixture actions.
+Fixture creation/reconfiguration validates the full set of sibling subentries.
 It rejects addresses outside 1..512, overlapping fixtures, duplicate names in
-the same entry, invalid ranges, and unknown fixture types. Completing a change
-reloads the config entry so the platform set exactly matches stored fixtures.
+the same entry, invalid ranges, and unknown fixture types. Subentry changes
+schedule a config-entry reload so the platform set exactly matches stored
+fixtures.
 
 ### Entities and registry identity
 
@@ -105,9 +112,9 @@ V1 fixture types are:
 - `raw`: a boxed `NumberEntity` with range 0..255 and step 1
 
 All fixtures remain entities of the one physical interface device to avoid a
-device-registry entry per single DMX slot. Entity unique IDs are
-`<entry_id>_<fixture_uuid>`; user-visible names never determine identity.
-Fixture deletion also removes its stale entity-registry entry.
+device-registry entry per single DMX slot. Each entity is added with its
+`config_subentry_id`, allowing Home Assistant to own removal. Entity unique IDs
+are `<entry_id>_<fixture_uuid>`; user-visible names never determine identity.
 
 Dimmer brightness is mapped through its configured minimum and maximum. Off is
 always DMX 0; on without brightness restores the last non-zero brightness.

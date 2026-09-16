@@ -82,6 +82,31 @@ def _fixture_subentry(
     )
 
 
+def _fixture_input(**updates: Any) -> dict[str, Any]:
+    """Build complete fixture form input and apply explicit test changes."""
+    user_input = {
+        FIXTURE_TYPE: "dimmer",
+        FIXTURE_NAME: "Fixture",
+        FIXTURE_ADDRESS: 1,
+        FIXTURE_MINIMUM: 0,
+        FIXTURE_MAXIMUM: 255,
+    }
+    user_input.update(updates)
+    return user_input
+
+
+def _mismatched_identity_subentry() -> ConfigSubentry:
+    """Build stored fixture data whose subentry identity disagrees with its ID."""
+    stored = _fixture_subentry()
+    return ConfigSubentry(
+        data=stored.data,
+        subentry_id=stored.subentry_id,
+        subentry_type=stored.subentry_type,
+        title=stored.title,
+        unique_id=str(uuid4()),
+    )
+
+
 async def _start_fixture_flow(
     hass: HomeAssistant, entry: MockConfigEntry
 ) -> config_entries.SubentryFlowResult:
@@ -90,6 +115,36 @@ async def _start_fixture_flow(
         (entry.entry_id, "fixture"),
         context={"source": config_entries.SOURCE_USER},
     )
+
+
+async def _create_fixture_and_capture_reload(
+    hass: HomeAssistant,
+    entry: MockConfigEntry,
+    user_input: dict[str, Any],
+) -> tuple[config_entries.SubentryFlowResult, list[tuple[str, set[str | None]]]]:
+    """Submit through the real manager and capture the state seen by reload."""
+    form = await _start_fixture_flow(hass, entry)
+    reload_observations: list[tuple[str, set[str | None]]] = []
+
+    def observe_reload(entry_id: str) -> None:
+        reload_observations.append(
+            (
+                entry_id,
+                {subentry.unique_id for subentry in entry.subentries.values()},
+            )
+        )
+
+    with patch.object(
+        hass.config_entries,
+        "async_schedule_reload",
+        side_effect=observe_reload,
+    ):
+        result = await hass.config_entries.subentries.async_configure(
+            form["flow_id"], user_input
+        )
+        await hass.async_block_till_done()
+
+    return result, reload_observations
 
 
 def _suggested_values(result: config_entries.SubentryFlowResult) -> dict[str, Any]:
@@ -136,14 +191,18 @@ async def test_create_dimmer_and_raw_fixtures_with_uuid4_boundaries(
 
     first_subentry_id: str | None = None
     for expected_count, fixture in enumerate(fixtures, start=1):
-        form = await _start_fixture_flow(hass, entry)
-        with patch.object(hass.config_entries, "async_schedule_reload") as reload_mock:
-            result = await hass.config_entries.subentries.async_configure(
-                form["flow_id"], fixture
-            )
+        result, reload_observations = await _create_fixture_and_capture_reload(
+            hass, entry, fixture
+        )
 
         assert result["type"] is FlowResultType.CREATE_ENTRY
-        reload_mock.assert_called_once_with(entry.entry_id)
+        assert reload_observations == [
+            (
+                entry.entry_id,
+                {subentry.unique_id for subentry in entry.subentries.values()},
+            )
+        ]
+        assert result["unique_id"] in reload_observations[0][1]
         assert len(entry.subentries) == expected_count
         stored = next(
             subentry
@@ -159,6 +218,60 @@ async def test_create_dimmer_and_raw_fixtures_with_uuid4_boundaries(
             first_subentry_id = stored.subentry_id
         else:
             assert first_subentry_id in entry.subentries
+
+
+async def test_create_trims_fixture_name_before_storage(
+    hass: HomeAssistant,
+) -> None:
+    """A valid padded name is stored and titled in its trimmed form."""
+    entry = _entry()
+    entry.add_to_hass(hass)
+    form = await _start_fixture_flow(hass, entry)
+
+    with patch.object(hass.config_entries, "async_schedule_reload"):
+        result = await hass.config_entries.subentries.async_configure(
+            form["flow_id"], _fixture_input(name="  Front light  ")
+        )
+        await hass.async_block_till_done()
+
+    stored = next(iter(entry.subentries.values()))
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert stored.title == "Front light"
+    assert stored.data[FIXTURE_NAME] == "Front light"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        (FIXTURE_TYPE, True),
+        (FIXTURE_NAME, 7),
+        (FIXTURE_ADDRESS, True),
+        (FIXTURE_ADDRESS, "1"),
+        (FIXTURE_MINIMUM, False),
+        (FIXTURE_MAXIMUM, True),
+    ],
+)
+async def test_create_rejects_primitive_field_types_with_stable_form_error(
+    hass: HomeAssistant,
+    field: str,
+    value: Any,
+) -> None:
+    """Primitive lookalikes, including numeric booleans, never enter storage."""
+    entry = _entry()
+    entry.add_to_hass(hass)
+    form = await _start_fixture_flow(hass, entry)
+    user_input = _fixture_input(**{field: value})
+
+    with patch.object(hass.config_entries, "async_schedule_reload") as reload_mock:
+        result = await hass.config_entries.subentries.async_configure(
+            form["flow_id"], user_input
+        )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "invalid_fixture"}
+    assert _suggested_values(result) == user_input
+    assert entry.subentries == {}
+    reload_mock.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -310,6 +423,44 @@ async def test_create_rejects_malformed_stored_sibling(
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {"base": "invalid_fixture"}
     assert set(entry.subentries) == {malformed.subentry_id}
+
+
+async def test_create_rejects_sibling_with_mismatched_stored_identity(
+    hass: HomeAssistant,
+) -> None:
+    """A sibling unique ID must equal its stored fixture ID."""
+    mismatched = _mismatched_identity_subentry()
+    entry = _entry(subentries=(mismatched,))
+    entry.add_to_hass(hass)
+    form = await _start_fixture_flow(hass, entry)
+
+    result = await hass.config_entries.subentries.async_configure(
+        form["flow_id"], _fixture_input(name="New fixture", address=2)
+    )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "invalid_fixture"}
+    assert set(entry.subentries) == {mismatched.subentry_id}
+
+
+async def test_reconfigure_rejects_mismatched_stored_identity(
+    hass: HomeAssistant,
+) -> None:
+    """Reconfigure reports invalid stored identity instead of raising."""
+    mismatched = _mismatched_identity_subentry()
+    entry = _entry(subentries=(mismatched,))
+    entry.add_to_hass(hass)
+
+    form = await entry.start_subentry_reconfigure_flow(hass, mismatched.subentry_id)
+    result = await hass.config_entries.subentries.async_configure(
+        form["flow_id"], _fixture_input(name="Updated fixture")
+    )
+
+    assert form["type"] is FlowResultType.FORM
+    assert form["errors"] == {"base": "invalid_fixture"}
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "invalid_fixture"}
+    assert entry.subentries[mismatched.subentry_id].unique_id == mismatched.unique_id
 
 
 async def test_reconfigure_updates_fixture_without_changing_identity_or_siblings(

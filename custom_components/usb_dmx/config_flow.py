@@ -27,6 +27,7 @@ from homeassistant.helpers.selector import (
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
+    TextSelector,
 )
 
 from . import async_create_backend
@@ -599,6 +600,15 @@ class _FixtureNumberSelector(NumberSelector):
         return data
 
 
+class _FixtureNameSelector(TextSelector):
+    """Render text input while retaining strict model type validation."""
+
+    @override
+    def __call__(self, data: Any) -> Any:
+        """Pass submitted data to the domain storage boundary unchanged."""
+        return data
+
+
 class FixtureSubentryFlow(ConfigSubentryFlow):
     """Create and reconfigure one fixture config subentry."""
 
@@ -612,7 +622,7 @@ class FixtureSubentryFlow(ConfigSubentryFlow):
                         mode=SelectSelectorMode.DROPDOWN,
                     )
                 ),
-                vol.Required(CONF_FIXTURE_NAME): cv.string,
+                vol.Required(CONF_FIXTURE_NAME): _FixtureNameSelector(),
                 vol.Required(CONF_FIXTURE_ADDRESS): _FixtureNumberSelector(
                     NumberSelectorConfig(
                         min=1,
@@ -675,7 +685,9 @@ class FixtureSubentryFlow(ConfigSubentryFlow):
                 errors["base"] = err.reason
             else:
                 fixture = self._successful_fixture(fixture)
-                self.hass.config_entries.async_schedule_reload(self._entry_id)
+                self.hass.loop.call_soon(
+                    self.hass.config_entries.async_schedule_reload, self._entry_id
+                )
                 return self.async_create_entry(
                     title=fixture.name,
                     data=fixture.as_mapping(),

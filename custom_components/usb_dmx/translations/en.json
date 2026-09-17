@@ -138,7 +138,7 @@
     },
     "device": {
       "options": {
-        "__manual_path__": "Enter a serial device path manually"
+        "manual_path": "Enter a serial device path manually"
       }
     },
     "fixture_type": {

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -63,6 +64,18 @@ def test_hacs_and_manifest_metadata_match_release_scope() -> None:
     assert "usb" not in manifest
 
 
+def test_uv_lock_is_complete_parseable_toml() -> None:
+    """The committed lockfile must remain complete after remote transport."""
+    with (_ROOT / "uv.lock").open("rb") as file:
+        lock = tomllib.load(file)
+
+    assert lock["version"] == 1
+    assert lock["revision"] == 3
+    assert lock["requires-python"] == ">=3.14.2"
+    assert any(package["name"] == "homeassistant" for package in lock["package"])
+    assert any(package["name"] == "usb-dmx" for package in lock["package"])
+
+
 def test_brand_assets_are_local_to_the_custom_integration() -> None:
     """HA must find local brand assets inside the custom integration directory."""
     integration_brand = _ROOT / "custom_components" / "usb_dmx" / "brand"
@@ -112,7 +125,7 @@ def test_validator_workflows_are_separate_and_run_daily() -> None:
             "schedule",
             "workflow_dispatch",
         }
-        assert workflow["permissions"] in ({}, {"contents": "read"})
+        assert workflow["permissions"] == {"contents": "read"}
         assert workflow["on"]["schedule"] == [{"cron": "0 0 * * *"}]
 
     assert _uses(hassfest) == [
@@ -126,4 +139,7 @@ def test_validator_workflows_are_separate_and_run_daily() -> None:
         for step in job["steps"]
         if step.get("uses") == _HACS_REF
     )
-    assert hacs_step["with"] == {"category": "integration"}
+    assert hacs_step["with"] == {
+        "category": "integration",
+        "comment": False,
+    }

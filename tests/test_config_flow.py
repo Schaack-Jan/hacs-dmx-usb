@@ -32,7 +32,7 @@ pytestmark = pytest.mark.usefixtures(
     "enable_custom_integrations", "_mock_usb_dependency", "_mock_entry_setup"
 )
 
-MANUAL_PATH = "__manual_path__"
+MANUAL_PATH = "manual_path"
 
 
 async def _start_user_flow(hass: HomeAssistant) -> config_entries.ConfigFlowResult:

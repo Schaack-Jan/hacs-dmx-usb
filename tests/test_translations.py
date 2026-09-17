@@ -20,6 +20,7 @@ _TRANSLATION_FILES = (
     _INTEGRATION_DIR / "translations" / "de.json",
 )
 _PLACEHOLDER_PATTERN = re.compile(r"(?<!{){([a-zA-Z0-9_]+)}(?!})")
+_SELECTOR_TRANSLATION_KEY_PATTERN = re.compile(r"[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?")
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -93,7 +94,7 @@ def _get_path(data: dict[str, Any], path: str) -> object:
         "options.step.init.data.startup_behavior",
         "options.step.init.data.blackout_on_shutdown",
         "selector.backend.options.serial_pro",
-        "selector.device.options.__manual_path__",
+        "selector.device.options.manual_path",
         "selector.fixture_type.options.dimmer",
         "selector.fixture_type.options.raw",
         "selector.startup_behavior.options.restore",
@@ -116,12 +117,23 @@ def test_translation_files_match_canonical_tree_and_placeholders() -> None:
     assert _placeholder_tree(german) == _placeholder_tree(english)
     assert "entity" not in english
     assert "entity" not in german
-    assert english["selector"]["device"]["options"]["__manual_path__"] == (
+    assert english["selector"]["device"]["options"]["manual_path"] == (
         "Enter a serial device path manually"
     )
-    assert german["selector"]["device"]["options"]["__manual_path__"] == (
+    assert german["selector"]["device"]["options"]["manual_path"] == (
         "Pfad zum seriellen Gerät manuell eingeben"
     )
+
+
+def test_selector_translation_keys_are_validator_compatible() -> None:
+    """Selector option keys must satisfy Hassfest's translation-key contract."""
+    english = _load_json(_TRANSLATION_FILES[0])
+
+    for selector in english["selector"].values():
+        for key in selector["options"]:
+            assert _SELECTOR_TRANSLATION_KEY_PATTERN.fullmatch(key)
+            assert not key.startswith(("_", "-"))
+            assert not key.endswith(("_", "-"))
 
 
 def test_custom_integration_has_no_core_only_strings_file() -> None:

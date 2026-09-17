@@ -65,7 +65,7 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.service_info.usb import UsbServiceInfo
 
-_MANUAL_PATH = "__manual_path__"
+_MANUAL_PATH = "manual_path"
 _FLOW_DEVICE_PATH_KEY = "usb_dmx_device_path_key"
 _FLOW_INTERFACE_ID = "usb_dmx_interface_id"
 

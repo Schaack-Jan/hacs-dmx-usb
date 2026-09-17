@@ -16,7 +16,6 @@ from custom_components.usb_dmx.config_flow import (
 
 _INTEGRATION_DIR = Path(__file__).parents[1] / "custom_components" / "usb_dmx"
 _TRANSLATION_FILES = (
-    _INTEGRATION_DIR / "strings.json",
     _INTEGRATION_DIR / "translations" / "en.json",
     _INTEGRATION_DIR / "translations" / "de.json",
 )
@@ -94,29 +93,40 @@ def _get_path(data: dict[str, Any], path: str) -> object:
         "options.step.init.data.startup_behavior",
         "options.step.init.data.blackout_on_shutdown",
         "selector.backend.options.serial_pro",
+        "selector.device.options.__manual_path__",
         "selector.fixture_type.options.dimmer",
         "selector.fixture_type.options.raw",
         "selector.startup_behavior.options.restore",
         "selector.startup_behavior.options.zero",
         "device.interface.name",
-        "entity.light.dimmer.name",
-        "entity.number.raw_channel.name",
     ],
 )
-def test_canonical_strings_cover_runtime_translation_paths(
+def test_english_translation_covers_runtime_translation_paths(
     required_path: str,
 ) -> None:
-    """Removing a flow- or entity-facing key must fail resource validation."""
+    """Removing a flow- or device-facing key must fail resource validation."""
     assert isinstance(_get_path(_load_json(_TRANSLATION_FILES[0]), required_path), str)
 
 
 def test_translation_files_match_canonical_tree_and_placeholders() -> None:
     """Locales must not lose keys or the placeholders supplied by runtime code."""
-    canonical, english, german = map(_load_json, _TRANSLATION_FILES)
+    english, german = map(_load_json, _TRANSLATION_FILES)
 
-    assert english == canonical
-    assert _key_tree(german) == _key_tree(canonical)
-    assert _placeholder_tree(german) == _placeholder_tree(canonical)
+    assert _key_tree(german) == _key_tree(english)
+    assert _placeholder_tree(german) == _placeholder_tree(english)
+    assert "entity" not in english
+    assert "entity" not in german
+    assert english["selector"]["device"]["options"]["__manual_path__"] == (
+        "Enter a serial device path manually"
+    )
+    assert german["selector"]["device"]["options"]["__manual_path__"] == (
+        "Pfad zum seriellen Gerät manuell eingeben"
+    )
+
+
+def test_custom_integration_has_no_core_only_strings_file() -> None:
+    """Custom integrations must load complete English text from translations."""
+    assert not (_INTEGRATION_DIR / "strings.json").exists()
 
 
 def test_static_selectors_reference_translated_options() -> None:

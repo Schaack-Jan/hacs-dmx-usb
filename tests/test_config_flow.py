@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
@@ -94,6 +95,64 @@ async def test_candidate_setup_uses_selector_metadata_and_stable_by_id(
     assert backend.connect_calls == 1
     assert backend.disconnect_calls == 1
     assert not backend.connected
+
+
+async def test_device_selector_localizes_manual_choice_without_rewriting_paths(
+    hass: HomeAssistant,
+) -> None:
+    """Frontend value lookup localizes manual while discovered paths stay exact."""
+    candidate = SimpleNamespace(
+        device="/dev/ttyUSB0",
+        resolved_device=None,
+        serial_number="SERIAL-1",
+        manufacturer="ENTTEC",
+        description="DMX USB Pro",
+    )
+    stable_path = "/dev/serial/by-id/dmx-serial-1"
+
+    with (
+        patch(
+            "custom_components.usb_dmx.config_flow._async_scan_serial_ports",
+            AsyncMock(return_value=[candidate]),
+        ),
+        patch(
+            "custom_components.usb_dmx.config_flow._async_get_stable_path",
+            AsyncMock(return_value=stable_path),
+        ),
+    ):
+        form = await _start_user_flow(hass)
+
+    selector = form["data_schema"].schema[CONF_DEVICE]
+    assert selector.config["translation_key"] == "device"
+    assert selector.config["options"] == [
+        {"value": stable_path, "label": stable_path},
+        {"value": MANUAL_PATH, "label": "Manual entry"},
+    ]
+    discovered_option, manual_option = selector.config["options"]
+    translation_root = (
+        Path(__file__).parents[1] / "custom_components" / "usb_dmx" / "translations"
+    )
+    for language, expected_manual_label in (
+        ("en", "Enter a serial device path manually"),
+        ("de", "Pfad zum seriellen Gerät manuell eingeben"),
+    ):
+        translations = json.loads(
+            (translation_root / f"{language}.json").read_text(encoding="utf-8")
+        )
+        translated_options = translations["selector"][
+            selector.config["translation_key"]
+        ]["options"]
+
+        assert (
+            translated_options.get(manual_option["value"], manual_option["label"])
+            == expected_manual_label
+        )
+        assert (
+            translated_options.get(
+                discovered_option["value"], discovered_option["label"]
+            )
+            == stable_path
+        )
 
 
 async def test_manual_path_escape_hatch_creates_entry(

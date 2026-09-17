@@ -158,7 +158,10 @@ def test_light_identity_and_device_are_stable_and_interface_scoped(
     device_info = interface_device_info(entry)
     assert device_info["identifiers"] == {(DOMAIN, entry.entry_id)}
     assert device_info["name"] == "Studio Interface"
+    assert device_info["translation_key"] == "interface"
     assert "/dev/" not in repr(device_info)
+    assert entity.name == "Front"
+    assert entity.translation_key is None
     assert entity.color_mode is ColorMode.BRIGHTNESS
     assert entity.supported_color_modes == {ColorMode.BRIGHTNESS}
     assert entity.supported_features == LightEntityFeature.TRANSITION
@@ -664,7 +667,7 @@ async def test_removed_light_cancels_active_and_rejects_queued_transition(
         (
             StartupBehavior.ZERO,
             State(
-                "light.studio_interface_front",
+                "light.usb_dmx_interface_front",
                 STATE_ON,
                 {ATTR_BRIGHTNESS: 128},
             ),
@@ -675,7 +678,7 @@ async def test_removed_light_cancels_active_and_rejects_queued_transition(
         (
             StartupBehavior.RESTORE,
             State(
-                "light.studio_interface_front",
+                "light.usb_dmx_interface_front",
                 STATE_OFF,
                 {ATTR_BRIGHTNESS: 77},
             ),
@@ -685,7 +688,7 @@ async def test_removed_light_cancels_active_and_rejects_queued_transition(
         (
             StartupBehavior.RESTORE,
             State(
-                "light.studio_interface_front",
+                "light.usb_dmx_interface_front",
                 STATE_ON,
                 {ATTR_BRIGHTNESS: "invalid"},
             ),
@@ -695,7 +698,7 @@ async def test_removed_light_cancels_active_and_rejects_queued_transition(
         (
             StartupBehavior.RESTORE,
             State(
-                "light.studio_interface_front",
+                "light.usb_dmx_interface_front",
                 STATE_ON,
                 {ATTR_BRIGHTNESS: 128},
             ),

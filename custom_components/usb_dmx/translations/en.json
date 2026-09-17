@@ -136,6 +136,11 @@
         "serial_pro": "DMX USB Pro"
       }
     },
+    "device": {
+      "options": {
+        "__manual_path__": "Enter a serial device path manually"
+      }
+    },
     "fixture_type": {
       "options": {
         "dimmer": "Dimmer light",
@@ -152,18 +157,6 @@
   "device": {
     "interface": {
       "name": "USB DMX interface"
-    }
-  },
-  "entity": {
-    "light": {
-      "dimmer": {
-        "name": "DMX dimmer"
-      }
-    },
-    "number": {
-      "raw_channel": {
-        "name": "DMX channel"
-      }
     }
   }
 }

@@ -56,6 +56,7 @@ def interface_device_info(entry: UsbDmxConfigEntry) -> DeviceInfo:
         manufacturer="USB DMX",
         model="DMX512 Interface",
         name=_interface_name(entry),
+        translation_key="interface",
     )
 
 

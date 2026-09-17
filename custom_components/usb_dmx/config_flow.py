@@ -24,6 +24,7 @@ from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
+    SelectOptionDict,
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
@@ -355,7 +356,10 @@ class UsbDmxConfigFlow(ConfigFlow, domain=DOMAIN):
                 backend=backend, path=path, interface_id=interface_id
             )
 
-        options = [*candidates, _MANUAL_PATH]
+        options = [
+            *(SelectOptionDict(value=path, label=path) for path in candidates),
+            SelectOptionDict(value=_MANUAL_PATH, label="Manual entry"),
+        ]
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema(
@@ -371,6 +375,7 @@ class UsbDmxConfigFlow(ConfigFlow, domain=DOMAIN):
                         SelectSelectorConfig(
                             options=options,
                             mode=SelectSelectorMode.DROPDOWN,
+                            translation_key="device",
                         )
                     ),
                 }

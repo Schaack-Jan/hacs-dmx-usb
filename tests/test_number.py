@@ -166,7 +166,10 @@ async def test_number_and_light_share_one_physical_device(
     assert light.device_entry is number.device_entry
     assert light.device_entry.config_subentry_id is None
     assert light.device_entry.identifiers == {(DOMAIN, entry.entry_id)}
+    assert light.device_entry.name == "USB DMX interface"
     assert number.unique_id == f"{entry.entry_id}_{RAW_ID}"
+    assert number.name == "Relay"
+    assert number.translation_key is None
     assert number.native_min_value == 0
     assert number.native_max_value == 255
     assert number.native_step == 1

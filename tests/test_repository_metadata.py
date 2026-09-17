@@ -12,6 +12,10 @@ from PIL import Image
 _ROOT = Path(__file__).parents[1]
 _CHECKOUT_REF = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
 _SETUP_UV_REF = "astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4"
+_HASSFEST_REF = (
+    "home-assistant/actions/hassfest@f4ca6f671bd429efb108c0f2fa0ae8af0215986c"
+)
+_HACS_REF = "hacs/action@d556e736723344f83838d08488c983a15381059a"
 
 
 def _load_json(relative_path: str) -> dict[str, Any]:
@@ -59,9 +63,13 @@ def test_hacs_and_manifest_metadata_match_release_scope() -> None:
     assert "usb" not in manifest
 
 
-def test_brand_icon_is_a_square_repository_png() -> None:
-    """HACS must receive the required local PNG asset without format ambiguity."""
-    with Image.open(_ROOT / "brand" / "icon.png") as icon:
+def test_brand_assets_are_local_to_the_custom_integration() -> None:
+    """HA must find local brand assets inside the custom integration directory."""
+    integration_brand = _ROOT / "custom_components" / "usb_dmx" / "brand"
+
+    assert not (_ROOT / "brand").exists()
+    assert (integration_brand / "icon.svg").is_file()
+    with Image.open(integration_brand / "icon.png") as icon:
         assert icon.format == "PNG"
         assert icon.size == (256, 256)
 
@@ -109,13 +117,13 @@ def test_validator_workflows_are_separate_and_run_daily() -> None:
 
     assert _uses(hassfest) == [
         _CHECKOUT_REF,
-        "home-assistant/actions/hassfest@master",
+        _HASSFEST_REF,
     ]
-    assert _uses(hacs) == ["hacs/action@main"]
+    assert _uses(hacs) == [_HACS_REF]
     hacs_step = next(
         step
         for job in hacs["jobs"].values()
         for step in job["steps"]
-        if step.get("uses") == "hacs/action@main"
+        if step.get("uses") == _HACS_REF
     )
     assert hacs_step["with"] == {"category": "integration"}

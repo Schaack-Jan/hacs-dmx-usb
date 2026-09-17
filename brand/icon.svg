@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="USB DMX">
+  <rect width="256" height="256" rx="48" fill="#0b5cad"/>
+  <path d="M48 128h54m52 0h54M102 91v74h52V91" fill="none" stroke="#fff" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="48" cy="128" r="14" fill="#8dd7ff"/>
+  <circle cx="208" cy="128" r="14" fill="#8dd7ff"/>
+  <path d="M111 76h34M111 180h34" fill="none" stroke="#8dd7ff" stroke-width="12" stroke-linecap="round"/>
+  <path d="M72 61l14 14-14 14M184 167l-14 14 14 14" fill="none" stroke="#fff" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

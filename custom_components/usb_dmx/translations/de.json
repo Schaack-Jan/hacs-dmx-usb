@@ -1,0 +1,169 @@
+{
+  "title": "USB DMX",
+  "config": {
+    "abort": {
+      "already_configured": "Diese DMX-Schnittstelle ist bereits konfiguriert.",
+      "already_in_progress": "Die Konfiguration dieser DMX-Schnittstelle läuft bereits.",
+      "invalid_discovery_info": "Die USB-Erkennungsdaten sind unvollständig.",
+      "reconfigure_successful": "Die DMX-Schnittstelle wurde erfolgreich neu konfiguriert."
+    },
+    "error": {
+      "cannot_connect": "Verbindung nicht möglich. Gerätepfad prüfen und sicherstellen, dass die Schnittstelle das DMX-USB-Pro-Protokoll verwendet.",
+      "invalid_device": "Einen nicht leeren Pfad zum seriellen Gerät eingeben."
+    },
+    "step": {
+      "user": {
+        "title": "DMX-Schnittstelle einrichten",
+        "description": "Ein serielles Gerät mit DMX-USB-Pro-Protokoll auswählen oder den Pfad manuell eingeben.",
+        "data": {
+          "backend": "Protokoll",
+          "device": "Serielles Gerät"
+        },
+        "data_description": {
+          "backend": "V1 unterstützt ausschließlich das DMX-USB-Pro-Protokoll.",
+          "device": "Die Auswahl eines seriellen Adapters bestätigt noch keine DMX-Protokollkompatibilität."
+        }
+      },
+      "manual": {
+        "title": "Pfad zum seriellen Gerät eingeben",
+        "description": "Den Pfad einer Schnittstelle mit DMX-USB-Pro-Protokoll eingeben.",
+        "data": {
+          "backend": "Protokoll",
+          "device": "Pfad zum seriellen Gerät"
+        },
+        "data_description": {
+          "backend": "V1 unterstützt ausschließlich das DMX-USB-Pro-Protokoll.",
+          "device": "Wenn vorhanden, einen stabilen Pfad unter /dev/serial/by-id verwenden."
+        }
+      },
+      "usb_confirm": {
+        "title": "DMX-Schnittstelle bestätigen",
+        "description": "Das erkannte serielle Gerät unter {device} einrichten? Nur bestätigen, wenn es das DMX-USB-Pro-Protokoll verwendet."
+      },
+      "reconfigure": {
+        "title": "DMX-Schnittstelle neu konfigurieren",
+        "description": "Den seriellen Pfad dieser vorhandenen Schnittstelle ändern.",
+        "data": {
+          "backend": "Protokoll",
+          "device": "Pfad zum seriellen Gerät"
+        },
+        "data_description": {
+          "backend": "V1 unterstützt ausschließlich das DMX-USB-Pro-Protokoll.",
+          "device": "Wenn vorhanden, einen stabilen Pfad unter /dev/serial/by-id verwenden."
+        }
+      }
+    }
+  },
+  "config_subentries": {
+    "fixture": {
+      "entry_type": "DMX-Gerät",
+      "initiate_flow": {
+        "user": "DMX-Gerät hinzufügen",
+        "reconfigure": "DMX-Gerät neu konfigurieren"
+      },
+      "abort": {
+        "reconfigure_successful": "Das DMX-Gerät wurde erfolgreich neu konfiguriert."
+      },
+      "error": {
+        "invalid_address": "Die DMX-Adresse muss zwischen 1 und 512 liegen.",
+        "invalid_range": "Minimum und Maximum müssen zwischen 0 und 255 liegen; das Minimum darf das Maximum nicht überschreiten.",
+        "duplicate_address": "Diese DMX-Adresse ist bereits einem anderen Gerät zugeordnet.",
+        "duplicate_name": "Dieser Gerätename wird bereits verwendet.",
+        "invalid_fixture": "Eine gültige Gerätekonfiguration eingeben."
+      },
+      "step": {
+        "user": {
+          "title": "DMX-Gerät hinzufügen",
+          "description": "Eine einkanalige Dimmer- oder DMX-Rohwert-Entität erstellen.",
+          "data": {
+            "type": "Gerätetyp",
+            "name": "Name",
+            "address": "DMX-Adresse",
+            "minimum": "Minimaler Ausgangswert",
+            "maximum": "Maximaler Ausgangswert"
+          },
+          "data_description": {
+            "type": "Dimmer skalieren die Home-Assistant-Helligkeit; Rohwertkanäle stellen Werte von 0 bis 255 bereit.",
+            "name": "In Home Assistant angezeigter Name.",
+            "address": "DMX-Kanal von 1 bis 512.",
+            "minimum": "Unterer Ausgangswert für die Helligkeitsskalierung des Dimmers.",
+            "maximum": "Oberer Ausgangswert für die Helligkeitsskalierung des Dimmers."
+          }
+        },
+        "reconfigure": {
+          "title": "DMX-Gerät neu konfigurieren",
+          "description": "Dieses Gerät ändern, ohne seine Entitätsidentität zu ändern.",
+          "data": {
+            "type": "Gerätetyp",
+            "name": "Name",
+            "address": "DMX-Adresse",
+            "minimum": "Minimaler Ausgangswert",
+            "maximum": "Maximaler Ausgangswert"
+          },
+          "data_description": {
+            "type": "Dimmer skalieren die Home-Assistant-Helligkeit; Rohwertkanäle stellen Werte von 0 bis 255 bereit.",
+            "name": "In Home Assistant angezeigter Name.",
+            "address": "DMX-Kanal von 1 bis 512.",
+            "minimum": "Unterer Ausgangswert für die Helligkeitsskalierung des Dimmers.",
+            "maximum": "Oberer Ausgangswert für die Helligkeitsskalierung des Dimmers."
+          }
+        }
+      }
+    }
+  },
+  "options": {
+    "error": {
+      "invalid_options": "Ein gültiges Startverhalten und eine gültige Abschaltoption auswählen."
+    },
+    "step": {
+      "init": {
+        "title": "USB-DMX-Optionen",
+        "description": "Das Verhalten beim Starten und ordnungsgemäßen Beenden der Integration konfigurieren.",
+        "data": {
+          "startup_behavior": "Startverhalten",
+          "blackout_on_shutdown": "Bei ordnungsgemäßem Beenden Blackout senden"
+        },
+        "data_description": {
+          "startup_behavior": "Gespeicherte Lichtzustände wiederherstellen oder alle DMX-Kanäle auf null lassen.",
+          "blackout_on_shutdown": "Vor dem Schließen der Schnittstelle beim ordnungsgemäßen Entladen oder Herunterfahren einen Null-Frame senden."
+        }
+      }
+    }
+  },
+  "selector": {
+    "backend": {
+      "options": {
+        "serial_pro": "DMX USB Pro"
+      }
+    },
+    "fixture_type": {
+      "options": {
+        "dimmer": "Dimmer-Licht",
+        "raw": "Rohwertkanal"
+      }
+    },
+    "startup_behavior": {
+      "options": {
+        "restore": "Gespeicherte Lichtzustände wiederherstellen",
+        "zero": "Bei null starten"
+      }
+    }
+  },
+  "device": {
+    "interface": {
+      "name": "USB-DMX-Schnittstelle"
+    }
+  },
+  "entity": {
+    "light": {
+      "dimmer": {
+        "name": "DMX-Dimmer"
+      }
+    },
+    "number": {
+      "raw_channel": {
+        "name": "DMX-Kanal"
+      }
+    }
+  }
+}

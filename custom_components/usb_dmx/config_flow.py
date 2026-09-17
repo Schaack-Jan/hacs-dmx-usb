@@ -322,6 +322,7 @@ class UsbDmxConfigFlow(ConfigFlow, domain=DOMAIN):
                     SelectSelectorConfig(
                         options=[BACKEND_SERIAL_PRO],
                         mode=SelectSelectorMode.DROPDOWN,
+                        translation_key="backend",
                     )
                 ),
                 device_field: cv.string,
@@ -363,6 +364,7 @@ class UsbDmxConfigFlow(ConfigFlow, domain=DOMAIN):
                         SelectSelectorConfig(
                             options=[BACKEND_SERIAL_PRO],
                             mode=SelectSelectorMode.DROPDOWN,
+                            translation_key="backend",
                         )
                     ),
                     vol.Required(CONF_DEVICE): SelectSelector(
@@ -620,6 +622,7 @@ class FixtureSubentryFlow(ConfigSubentryFlow):
                     SelectSelectorConfig(
                         options=[fixture_type.value for fixture_type in FixtureType],
                         mode=SelectSelectorMode.DROPDOWN,
+                        translation_key="fixture_type",
                     )
                 ),
                 vol.Required(CONF_FIXTURE_NAME): _FixtureNameSelector(),
@@ -785,6 +788,7 @@ class UsbDmxOptionsFlow(OptionsFlowWithReload):
                     SelectSelectorConfig(
                         options=[behavior.value for behavior in StartupBehavior],
                         mode=SelectSelectorMode.DROPDOWN,
+                        translation_key="startup_behavior",
                     )
                 ),
                 vol.Required(CONF_BLACKOUT_ON_SHUTDOWN): cv.boolean,

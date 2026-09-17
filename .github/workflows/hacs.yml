@@ -1,0 +1,21 @@
+name: HACS validation
+
+"on":
+  push:
+  pull_request:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  hacs:
+    name: Validate with HACS
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Run HACS validation
+        uses: hacs/action@main # Official rolling validator ref
+        with:
+          category: integration

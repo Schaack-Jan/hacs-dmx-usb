@@ -1,5 +1,4 @@
 {
   "name": "USB DMX",
-  "render_readme": true,
   "homeassistant": "2026.9.0"
 }

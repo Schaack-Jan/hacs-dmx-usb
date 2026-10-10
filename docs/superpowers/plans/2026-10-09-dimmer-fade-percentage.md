@@ -26,7 +26,7 @@
 
 ## Review Focus
 
-1. Restore with disabled light and active fader must still prefer old light state and write once.
+1. Restore with disabled light and active fader resolves once: newest usable stored brightness wins, with Light winning equal-recency ties and supplying the legacy state when no newer Fader exists.
 2. Fixture deletion racing queued light/fader/settings writes must be terminal, preserve siblings, and never recreate a child.
 3. Equal positive DMX min/max and 0/0 must still publish logical fade progress and exact off.
 4. Slow writes and USB outage must not stretch software timing cumulatively or cause compensation bursts/stale finals.
@@ -85,11 +85,11 @@
 - Entity callbacks deduplicate changed visible states; controls only subscribe to relevant settings, output controls mirror controller availability. Remove all subscriptions during entity removal.
 - Real HA restore state is resolved once centrally at the first active light/fader, preferring stored light state via registry even if light disabled. Light/number restore extra data includes last positive requested target. Off has no visible brightness attribute; restored legacy off brightness may supply remembered target. No restoration for settings-only entities.
 
-- [ ] RED tests for entity creation/ownership/IDs, no-dimmer global, Light/Fader concurrent commands and shared live intermediate states, setting commands and scenes, config UI metadata, strict input boundaries.
-- [ ] Replace light optimistic state with runtime properties; forward commands to runtime. Keep raw entities behavior/identity. Add native companions and role translation keys, preserve fixture names.
-- [ ] RED→GREEN restore tests with real HA extra data, platform order, disabled light and disabled number, malformed restore, zero startup, one restore write. Replace existing optimistic transition assertions with live-state checks, retain other regressions.
-- [ ] Verify queued deletion, siblings/parent device, type/address/range reconfigure cleanup of obsolete registry entities and old tasks, normal unload without blackout, settings changes don't reload; real HA native light/number/select services and scenes. Run full suite and Ruff.
-- [ ] Commit `feat: expose normalized dimmer and fade controls`; report exact failures if any.
+- [x] RED tests for entity creation/ownership/IDs, no-dimmer global, Light/Fader concurrent commands and shared live intermediate states, setting commands and scenes, config UI metadata, strict input boundaries.
+- [x] Replace light optimistic state with runtime properties; forward commands to runtime. Keep raw entities behavior/identity. Add native companions and role translation keys, preserve fixture names.
+- [x] RED→GREEN restore tests with real HA extra data, platform order, disabled light and disabled number, malformed restore, zero startup, one restore write. Replace existing optimistic transition assertions with live-state checks, retain other regressions.
+- [x] Verify queued deletion, siblings/parent device, type/address/range reconfigure cleanup of obsolete registry entities and old tasks, normal unload without blackout, settings changes don't reload; real HA native light/number/select services and scenes. Run full suite and Ruff.
+- [x] Commit `feat: expose normalized dimmer and fade controls`; report exact failures if any.
 
 ### Task 4: Translations, documentation and regression closure
 
@@ -107,3 +107,9 @@
 - [ ] Push feature branch via GitHub connector; inspect actual Tests/Hassfest/HACS workflow results.
 - [ ] Set requested description and add `home-assistant`, `hacs`, `custom-integration`, `dmx`, `usb-dmx`, preserving any existing unrelated topics. The connector has no repository administration mutation; use another authorized channel only if available, otherwise report concrete blocker.
 - [ ] Report branch/commit, verified checks, metadata result and hardware tests not performed. Do not merge or release.
+
+## Reviewed execution notes
+
+Task 3 completed at `0cc8add`: 385 full-suite tests passed before the focused setup fix; actual Number/Select platform failure RED 2 failed, lifecycle/setup GREEN 24 passed after the fix. Independent task review and scoped fix review approved the native entity/restore/lifecycle work. The prior setup subscription cleanup gap is closed. Task 4 owns the final full-suite run.
+
+Restore-source ruling: a disabled Light may retain stale cache while its active Fader records a newer brightness. Prefer the newest usable record, with Light priority at equal recency; rework is confined to this feature branch if this interpretation is revised.

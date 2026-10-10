@@ -103,7 +103,7 @@
 
 ## Completion
 
-- [ ] Independent whole-branch review; fix Important/Critical findings with RED→GREEN evidence and scoped independent re-review.
+- [x] Independent whole-branch review; fix Important/Critical findings with RED→GREEN evidence and scoped independent re-review.
 - [ ] Push feature branch via GitHub connector; inspect actual Tests/Hassfest/HACS workflow results.
 - [ ] Set requested description and add `home-assistant`, `hacs`, `custom-integration`, `dmx`, `usb-dmx`, preserving any existing unrelated topics. The connector has no repository administration mutation; use another authorized channel only if available, otherwise report concrete blocker.
 - [ ] Report branch/commit, verified checks, metadata result and hardware tests not performed. Do not merge or release.
@@ -117,3 +117,9 @@ Restore-source ruling: a disabled Light may retain stale cache while its active 
 Task 4 completed at local commit `8739eeb`: locked sync, 399 passing tests, Ruff lint/format and diff checks passed. Independent specification and quality review approved the documentation, translations and acceptance matrix without findings. Physical hardware remains unverified.
 
 Commit IDs in these execution notes refer to local development history. Publishing through the GitHub connector may produce different commit IDs due to author/timestamp metadata; every published tree must match its verified local tree SHA before the single new branch is created. No intermediate remote branch updates, pull request or CI reruns are planned.
+
+Final whole-branch specification review passed. Its sole minor comment correction was addressed at `3893f0b` and the scoped re-review approved it with no findings. The root's fresh locked-stack run passed 399 tests, Ruff lint/format (45 files), diff checks and unchanged lock/workflow/original-upload checks. An AST comparison confirmed that the final comment correction did not alter executable behavior.
+
+Execution rulings: the explicit execution request superseded the design's historical extra approval gates and additionally authorized repository metadata; any mistaken interpretation costs reviewable feature-branch rework, not a main change. Select forwarding moved from Task 2 to Task 3 so the intermediate setup never imported an absent platform module; any reversal costs task-ordering rework, not a final feature difference. The restore-source ruling above avoids stale disabled-Light cache; reversing it costs restore-priority rework without changing fixture identities.
+
+Publication, actual remote workflow results and repository metadata status are reported in the handoff. Those completion checkboxes record the pre-publication state of this verified tree; no documentation-only follow-up push will be used to update them. Physical hardware remains unverified.

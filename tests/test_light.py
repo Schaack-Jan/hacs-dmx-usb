@@ -210,7 +210,7 @@ async def test_default_mapping_last_nonzero_and_off_semantics(
     await entity.async_turn_off()
     assert backend.frames[-1][0] == 0
     assert not entity.is_on
-    assert entity.brightness == 1
+    assert entity.brightness is None
 
     await entity.async_turn_on(**{ATTR_BRIGHTNESS: None})
     assert entity.is_on
@@ -264,7 +264,7 @@ async def test_on_and_off_transitions_forward_and_replace_through_controller(
     assert backend.frames[-1][0] == 0
     assert all(frame[0] != 255 for frame in backend.frames)
     assert not entity.is_on
-    assert entity.brightness == 255
+    assert entity.brightness is None
     await controller.async_stop()
 
 
@@ -369,7 +369,8 @@ async def test_restore_valid_on_and_off_states(
 
     assert backend.frames == frames_before
     assert not off_entity.is_on
-    assert off_entity.brightness == 77
+    assert off_entity.brightness is None
+    assert off_entity.dimmer.last_on_brightness == 77
     assert controller.current_frame[1] == 0
     await controller.async_stop()
 
@@ -518,12 +519,12 @@ async def test_light_services_publish_direct_state_immediately(
         assert await hass.config_entries.async_unload(entry.entry_id)
 
 
-async def test_light_transition_service_publishes_target_state_immediately(
+async def test_light_transition_service_publishes_live_intermediate_and_end_states(
     hass: HomeAssistant,
     make_fixture_subentry: Callable[..., ConfigSubentry],
     make_usb_dmx_entry: Callable[..., MockConfigEntry],
 ) -> None:
-    """An admitted transition publishes its requested HA state immediately."""
+    """An admitted transition publishes live progress and exact endpoints."""
     fixture = make_fixture_subentry(fixture_id=DIMMER_ID, name="Front", address=1)
     entry = make_usb_dmx_entry(fixture, startup_behavior=StartupBehavior.ZERO)
     entry.add_to_hass(hass)
@@ -550,11 +551,14 @@ async def test_light_transition_service_publishes_target_state_immediately(
             target={"entity_id": entity_id},
             blocking=True,
         )
+        await asyncio.sleep(0.06)
         state = hass.states.get(entity_id)
         assert state is not None
         assert state.state == STATE_ON
-        assert state.attributes[ATTR_BRIGHTNESS] == 200
+        assert 0 < state.attributes[ATTR_BRIGHTNESS] < 200
         assert entry.runtime_data.controller.current_frame[0] < 200
+        await asyncio.sleep(0.2)
+        assert hass.states.get(entity_id).attributes[ATTR_BRIGHTNESS] == 200
 
         await hass.services.async_call(
             "light",
@@ -565,7 +569,12 @@ async def test_light_transition_service_publishes_target_state_immediately(
         )
         state = hass.states.get(entity_id)
         assert state is not None
-        assert state.state == STATE_OFF
+        assert state.state == STATE_ON
+        await asyncio.sleep(0.06)
+        assert 0 < hass.states.get(entity_id).attributes[ATTR_BRIGHTNESS] < 200
+        await asyncio.sleep(0.2)
+        assert hass.states.get(entity_id).state == STATE_OFF
+        assert ATTR_BRIGHTNESS not in hass.states.get(entity_id).attributes
 
         assert await hass.config_entries.async_unload(entry.entry_id)
 

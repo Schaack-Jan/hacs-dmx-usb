@@ -230,3 +230,42 @@ def test_backend_accepts_exactly_one_universe() -> None:
     asyncio.run(backend.send_frame(bytes(512)))
 
     assert backend.calls == ["send_frame"]
+
+
+@pytest.mark.parametrize("fixture_type", list(FixtureType))
+def test_old_fixture_defaults_preserve_identity(fixture_type: FixtureType) -> None:
+    """Old dimmer and raw data retain IDs while defaulting fade settings."""
+    fixture = _fixture(fixture_type=fixture_type)
+    assert fixture.fade_time == 0.0
+    assert fixture.fade_source.value == "global"
+    loaded = FixtureConfig.from_mapping(fixture.as_mapping())
+    assert loaded == fixture
+    assert loaded.fixture_id == fixture.fixture_id
+    assert loaded.fixture_type is fixture_type
+
+
+@pytest.mark.parametrize(("value", "expected"), [(0, 0.0), (2, 2.0), (0.015, 0.01)])
+def test_fade_time_is_normalized(value: object, expected: float) -> None:
+    """Valid finite times normalize to hundredths at the storage boundary."""
+    stored = _fixture().as_mapping() | {"fade_time": value, "fade_source": "individual"}
+    fixture = FixtureConfig.from_mapping(stored)
+    assert fixture.fade_time == expected
+    assert fixture.fade_source.value == "individual"
+    assert fixture.as_mapping()["fade_time"] == expected
+    assert fixture.as_mapping()["fade_source"] == "individual"
+
+
+@pytest.mark.parametrize(
+    "value", [True, False, "1", None, float("nan"), float("inf"), -0.01, 2.01]
+)
+def test_stored_fade_time_rejects_invalid_values(value: object) -> None:
+    """Malformed stored times produce a controlled stable reason."""
+    with pytest.raises(FixtureValidationError, match=r"^invalid_fade_time$"):
+        FixtureConfig.from_mapping(_fixture().as_mapping() | {"fade_time": value})
+
+
+@pytest.mark.parametrize("value", [True, None, 0, "Global", "individual ", "other"])
+def test_stored_fade_source_rejects_invalid_values(value: object) -> None:
+    """Sources accept only the two exact storage values."""
+    with pytest.raises(FixtureValidationError, match=r"^invalid_fade_source$"):
+        FixtureConfig.from_mapping(_fixture().as_mapping() | {"fade_source": value})

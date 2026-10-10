@@ -79,11 +79,14 @@ def _get_path(data: dict[str, Any], path: str) -> object:
         "config_subentries.fixture.initiate_flow.user",
         "config_subentries.fixture.initiate_flow.reconfigure",
         "config_subentries.fixture.abort.reconfigure_successful",
+        "config_subentries.fixture.abort.unknown_subentry",
         "config_subentries.fixture.error.invalid_address",
         "config_subentries.fixture.error.invalid_range",
         "config_subentries.fixture.error.duplicate_address",
         "config_subentries.fixture.error.duplicate_name",
         "config_subentries.fixture.error.invalid_fixture",
+        "config_subentries.fixture.error.invalid_fade_time",
+        "config_subentries.fixture.error.invalid_fade_source",
         "config_subentries.fixture.step.user.data.type",
         "config_subentries.fixture.step.user.data.name",
         "config_subentries.fixture.step.user.data.address",
@@ -100,6 +103,12 @@ def _get_path(data: dict[str, Any], path: str) -> object:
         "selector.startup_behavior.options.restore",
         "selector.startup_behavior.options.zero",
         "device.interface.name",
+        "entity.number.level.name",
+        "entity.number.fade_time.name",
+        "entity.number.global_fade_time.name",
+        "entity.select.fade_source.name",
+        "entity.select.fade_source.state.global",
+        "entity.select.fade_source.state.individual",
     ],
 )
 def test_english_translation_covers_runtime_translation_paths(
@@ -115,8 +124,14 @@ def test_translation_files_match_canonical_tree_and_placeholders() -> None:
 
     assert _key_tree(german) == _key_tree(english)
     assert _placeholder_tree(german) == _placeholder_tree(english)
-    assert "entity" not in english
-    assert "entity" not in german
+    assert set(english["entity"]["number"]) == {
+        "level",
+        "fade_time",
+        "global_fade_time",
+    }
+    assert set(english["entity"]["select"]) == {"fade_source"}
+    assert english["entity"]["number"]["level"]["name"] == "{fixture_name} Level"
+    assert german["entity"]["number"]["level"]["name"] == "{fixture_name} Helligkeit"
     assert english["selector"]["device"]["options"]["manual_path"] == (
         "Enter a serial device path manually"
     )

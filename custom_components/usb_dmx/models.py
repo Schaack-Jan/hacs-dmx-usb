@@ -5,9 +5,12 @@ from __future__ import annotations
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
+from math import isfinite
 from uuid import UUID
 
 from .const import (
+    CONF_FADE_SOURCE,
+    CONF_FADE_TIME,
     CONF_FIXTURE_ADDRESS,
     CONF_FIXTURE_ID,
     CONF_FIXTURE_MAXIMUM,
@@ -16,6 +19,7 @@ from .const import (
     CONF_FIXTURE_TYPE,
     DMX_CHANNEL_COUNT,
     DMX_MAX_VALUE,
+    FADE_TIME_MAX,
 )
 
 _UUID_VERSION = 4
@@ -26,6 +30,13 @@ class FixtureType(StrEnum):
 
     DIMMER = "dimmer"
     RAW = "raw"
+
+
+class FadeSource(StrEnum):
+    """Supported sources of a dimmer fade time."""
+
+    GLOBAL = "global"
+    INDIVIDUAL = "individual"
 
 
 class StartupBehavior(StrEnum):
@@ -44,6 +55,27 @@ class FixtureValidationError(ValueError):
         super().__init__(reason)
 
 
+def validate_fade_time(value: object) -> float:
+    """Validate and normalize a finite fade setting to hundredths of a second."""
+    if (
+        type(value) not in (int, float)
+        or not 0 <= value <= FADE_TIME_MAX
+        or not isfinite(value)
+    ):
+        raise FixtureValidationError("invalid_fade_time")
+    return round(float(value), 2)
+
+
+def validate_fade_source(value: object) -> FadeSource:
+    """Validate one exact persisted fade source."""
+    if not isinstance(value, str):
+        raise FixtureValidationError("invalid_fade_source")
+    try:
+        return FadeSource(value)
+    except ValueError as err:
+        raise FixtureValidationError("invalid_fade_source") from err
+
+
 @dataclass(frozen=True, slots=True)
 class FixtureConfig:
     """Stored configuration for one single-slot DMX fixture."""
@@ -54,10 +86,16 @@ class FixtureConfig:
     address: int
     minimum: int
     maximum: int
+    fade_time: float = 0.0
+    fade_source: FadeSource = FadeSource.GLOBAL
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, object]) -> FixtureConfig:
         """Create and validate a fixture from its JSON-safe representation."""
+        fade_time = validate_fade_time(data.get(CONF_FADE_TIME, 0.0))
+        fade_source = validate_fade_source(
+            data.get(CONF_FADE_SOURCE, FadeSource.GLOBAL)
+        )
         try:
             fixture_id = data[CONF_FIXTURE_ID]
             fixture_type = data[CONF_FIXTURE_TYPE]
@@ -80,6 +118,8 @@ class FixtureConfig:
                 address=address,
                 minimum=minimum,
                 maximum=maximum,
+                fade_time=fade_time,
+                fade_source=fade_source,
             )
         except (KeyError, TypeError, ValueError) as err:
             raise FixtureValidationError("invalid_fixture") from err
@@ -89,7 +129,7 @@ class FixtureConfig:
 
     def as_mapping(self) -> dict[str, object]:
         """Return the JSON-safe storage representation of this fixture."""
-        return {
+        data: dict[str, object] = {
             CONF_FIXTURE_ID: self.fixture_id,
             CONF_FIXTURE_TYPE: self.fixture_type.value,
             CONF_FIXTURE_NAME: self.name,
@@ -97,6 +137,10 @@ class FixtureConfig:
             CONF_FIXTURE_MINIMUM: self.minimum,
             CONF_FIXTURE_MAXIMUM: self.maximum,
         }
+        if self.fixture_type is FixtureType.DIMMER:
+            data[CONF_FADE_TIME] = self.fade_time
+            data[CONF_FADE_SOURCE] = self.fade_source.value
+        return data
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,6 +198,9 @@ def validate_fixtures(fixtures: Collection[FixtureConfig]) -> None:
             or not 0 <= fixture.minimum <= fixture.maximum <= DMX_MAX_VALUE
         ):
             raise FixtureValidationError("invalid_range")
+
+        validate_fade_time(fixture.fade_time)
+        validate_fade_source(fixture.fade_source)
 
         if fixture.address in addresses:
             raise FixtureValidationError("duplicate_address")

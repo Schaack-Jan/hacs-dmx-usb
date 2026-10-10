@@ -67,7 +67,51 @@ DMX protocol compatibility.
 
 Use the fixture's reconfigure control to change its name, type, address, or
 dimmer range. Remove the fixture from the integration entry to remove its
-entity.
+entities.
+
+## Configure dimmer fades
+
+On the USB interface device, find **Global fade time** in the configuration
+controls. Each dimmer also has its Light, a regular **Level** Number slider,
+an individual **Fade time** Number, and a **Fade source** Select. Both fade times
+accept 0–2 seconds in 0.01-second steps. Initial times are 0 s and the initial
+source is `global`, including for existing dimmers. The global setting belongs
+only to that interface and exists even without fixtures.
+
+Select `individual` to use the dimmer's own time. Individual 0 s disables fading
+for that dimmer even when the global time is positive. Switching sources keeps
+the saved individual value. An explicit Light `transition`, including 0, takes
+priority over either setting; its accepted range remains 0–6553 s. Settings are
+saved across reloads and restarts, do not reload the integration or write DMX,
+and affect only subsequent brightness commands. Scenes using native Light or
+Number commands use the same fade path. Raw channel values remain immediate.
+
+The native Level slider uses 0–1 without a percent unit: send 0.5 for 50%.
+Inputs convert with `int(round(value * 255))`; the displayed state rounds the
+published Light brightness divided by 255 to two decimal places. Service inputs
+between slider steps are accepted without prior quantization. Light and Level
+show calculated intermediate output, not measured hardware feedback. During
+fade-off Light stays on until exact zero, although Level may round to 0 sooner.
+Timing depends on scheduling and transport; a 0.01 s setting is not a hardware
+timing guarantee. See [Native service and dashboard examples](README.md#native-service-and-dashboard-examples).
+
+## Optional manual helper migration
+
+No template helper or dashboard YAML is automatically changed, deleted or
+imported. Native faders receive their own registry IDs; they do not inherit an
+existing helper ID such as `number.dmx_lampe_links_fader`.
+
+1. Find the new Level, fade-time and fade-source IDs under **Settings > Devices
+   & services > Entities** or **Developer tools > States**. Copy the actual IDs;
+   do not derive them from display names or the README placeholders.
+2. Back up your dashboard YAML. Manually replace helper references in cards,
+   automations and scenes with the corresponding native Level ID. Keep writable
+   values normalized to 0–1; divide percentage inputs by 100 before sending them.
+   A custom percentage display may multiply the native state by 100.
+3. Check both fader and Light commands, source selection, individual zero and
+   scene behavior. Keep the old helper while validating the replacements.
+4. Remove an unused helper only when you choose to do so and have checked all
+   references. Existing Light and raw-channel identities remain unchanged.
 
 ## Configure startup and shutdown
 
@@ -77,6 +121,11 @@ Open the integration entry's options:
   Assistant. **Start at zero** keeps the initially zeroed universe.
 - **Send blackout on clean shutdown** sends a zero frame during an orderly
   reload, removal, or shutdown before closing the interface.
+
+Startup first sends a zero frame. Restore applies one immediate output restore,
+without fading, using saved output states; an enabled native fader can restore
+when its Light is disabled. Fade settings persist independently of the startup
+option. Settings-only entities do not restore brightness.
 
 Blackout is best effort. It cannot be sent after power loss, a host crash, or
 when the cable is already disconnected, and it is not an electrical safety
@@ -133,10 +182,12 @@ compatibility from the USB bridge chip alone.
 
 ### Entities become unavailable
 
-The integration marks all entities unavailable after a transport error and
+The integration marks output entities unavailable after a transport error and
 retries automatically. Check the cable and adapter, wait for reconnect, and
 reload the integration if needed. The current complete frame is replayed after
-a successful reconnect.
+a successful reconnect. Software fades continue offline, and fade settings
+remain editable; reconnect sends the then-current output rather than restarting
+the fade.
 
 ### Collect diagnostics and logs
 

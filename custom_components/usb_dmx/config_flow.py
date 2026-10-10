@@ -17,6 +17,7 @@ from homeassistant.config_entries import (
     ConfigSubentryFlow,
     OptionsFlowWithReload,
     SubentryFlowResult,
+    UnknownSubEntry,
 )
 from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv
@@ -719,7 +720,10 @@ class FixtureSubentryFlow(ConfigSubentryFlow):
     ) -> SubentryFlowResult:
         """Reconfigure fixture fields without changing its UUID identity."""
         entry = self._get_entry()
-        subentry = self._get_reconfigure_subentry()
+        try:
+            subentry = self._get_reconfigure_subentry()
+        except UnknownSubEntry:
+            return self.async_abort(reason="unknown_subentry")
         errors: dict[str, str] = {}
         try:
             current = _stored_fixture(subentry)
@@ -744,7 +748,17 @@ class FixtureSubentryFlow(ConfigSubentryFlow):
                     entry,
                     subentry,
                     title=fixture.name,
-                    data=fixture.as_mapping(),
+                    data_updates={
+                        key: fixture.as_mapping()[key]
+                        for key in (
+                            CONF_FIXTURE_ID,
+                            CONF_FIXTURE_TYPE,
+                            CONF_FIXTURE_NAME,
+                            CONF_FIXTURE_ADDRESS,
+                            CONF_FIXTURE_MINIMUM,
+                            CONF_FIXTURE_MAXIMUM,
+                        )
+                    },
                 )
 
         suggested_values: Mapping[str, Any] | None

@@ -95,11 +95,11 @@
 
 **Files:** Modify `translations/en.json`, `translations/de.json`, `README.md`, `INSTALLATION.md`; extend translation/repository tests and any missing acceptance tests from the requirements map.
 
-- [ ] Verify every R01–R20 has code/test or explicit manual acceptance coverage. Add missing behavior tests first and fix only evidenced gaps. Check interleaved options/reconfigure/settings submissions and slow/outage/replacement lifecycle boundaries.
-- [ ] Add EN/DE matching translation topology, new number/select names and source labels; validate with translation tests and HA entity metadata tests.
-- [ ] Document 0–1 normalized vs 0–100% display, rounding, priority explicit > individual > global, valid zero override, live logical output rather than measured feedback, time-resolution limits, optional manual helper migration, actual registry entity IDs, no hardware guarantees. Supply native fader YAML/service examples using placeholder registry IDs.
-- [ ] Run `uv sync --locked`, `uv run pytest -q`, `uv run ruff check .`, `uv run ruff format --check .`; report actual counts. Do not change dependencies/lock to fix unrelated package updates.
-- [ ] Commit `docs: document native dimmer faders and fade controls`.
+- [x] Verify every R01–R20 has code/test or explicit manual acceptance coverage. Add missing behavior tests first and fix only evidenced gaps. Check interleaved options/reconfigure/settings submissions and slow/outage/replacement lifecycle boundaries.
+- [x] Add EN/DE matching translation topology, new number/select names and source labels; validate with translation tests and HA entity metadata tests.
+- [x] Document 0–1 normalized vs 0–100% display, rounding, priority explicit > individual > global, valid zero override, live logical output rather than measured feedback, time-resolution limits, optional manual helper migration, actual registry entity IDs, no hardware guarantees. Supply native fader YAML/service examples using placeholder registry IDs.
+- [x] Run `uv sync --locked`, `uv run pytest -q`, `uv run ruff check .`, `uv run ruff format --check .`; report actual counts. Do not change dependencies/lock to fix unrelated package updates.
+- [x] Commit `docs: document native dimmer faders and fade controls`.
 
 ## Completion
 
@@ -113,3 +113,7 @@
 Task 3 completed at `0cc8add`: 385 full-suite tests passed before the focused setup fix; actual Number/Select platform failure RED 2 failed, lifecycle/setup GREEN 24 passed after the fix. Independent task review and scoped fix review approved the native entity/restore/lifecycle work. The prior setup subscription cleanup gap is closed. Task 4 owns the final full-suite run.
 
 Restore-source ruling: a disabled Light may retain stale cache while its active Fader records a newer brightness. Prefer the newest usable record, with Light priority at equal recency; rework is confined to this feature branch if this interpretation is revised.
+
+Task 4 completed at local commit `8739eeb`: locked sync, 399 passing tests, Ruff lint/format and diff checks passed. Independent specification and quality review approved the documentation, translations and acceptance matrix without findings. Physical hardware remains unverified.
+
+Commit IDs in these execution notes refer to local development history. Publishing through the GitHub connector may produce different commit IDs due to author/timestamp metadata; every published tree must match its verified local tree SHA before the single new branch is created. No intermediate remote branch updates, pull request or CI reruns are planned.

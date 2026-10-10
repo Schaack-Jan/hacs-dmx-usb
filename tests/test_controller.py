@@ -462,3 +462,21 @@ async def test_cancel_transition_has_no_write_or_late_completion() -> None:
     assert tuple(progress) == published
     assert 1 not in progress
     await controller.async_stop()
+
+
+async def test_short_fade_below_sample_interval_reaches_exact_endpoint() -> None:
+    """A 0.01-second fade still completes when shorter than one regular sample."""
+    backend = FakeBackend()
+    controller = DmxController(backend)
+    await controller.async_start()
+    await controller.async_set_channel(2, 49)
+    progress = []
+    await controller.async_transition_channel(
+        1, 173, 0.01, progress_callback=progress.append
+    )
+    await asyncio.wait_for(_wait_until(lambda: not controller._transition_tasks), 1)
+    assert progress[-1] == 1
+    assert progress.count(1) == 1
+    assert controller.current_frame[:2] == bytes((173, 49))
+    assert backend.frames[-1] == controller.current_frame
+    await controller.async_stop()

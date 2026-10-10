@@ -62,14 +62,17 @@
         "reconfigure": "DMX-Gerät neu konfigurieren"
       },
       "abort": {
-        "reconfigure_successful": "Das DMX-Gerät wurde erfolgreich neu konfiguriert."
+        "reconfigure_successful": "Das DMX-Gerät wurde erfolgreich neu konfiguriert.",
+        "unknown_subentry": "Dieses DMX-Gerät existiert nicht mehr."
       },
       "error": {
         "invalid_address": "Die DMX-Adresse muss zwischen 1 und 512 liegen.",
         "invalid_range": "Minimum und Maximum müssen zwischen 0 und 255 liegen; das Minimum darf das Maximum nicht überschreiten.",
         "duplicate_address": "Diese DMX-Adresse ist bereits einem anderen Gerät zugeordnet.",
         "duplicate_name": "Dieser Gerätename wird bereits verwendet.",
-        "invalid_fixture": "Eine gültige Gerätekonfiguration eingeben."
+        "invalid_fixture": "Eine gültige Gerätekonfiguration eingeben.",
+        "invalid_fade_time": "Die Fadezeit muss eine endliche Zahl zwischen 0 und 2 Sekunden sein.",
+        "invalid_fade_source": "Die Fadequelle muss global oder individual sein."
       },
       "step": {
         "user": {

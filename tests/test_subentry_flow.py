@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
@@ -25,6 +26,7 @@ from custom_components.usb_dmx.const import (
     CONF_INTERFACE_ID,
     DOMAIN,
 )
+from custom_components.usb_dmx.settings import FadeSettings
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -664,3 +666,67 @@ async def test_reconfigure_deleted_fixture_aborts_without_recreation(
     assert result["reason"] == "unknown_subentry"
     assert set(entry.subentries) == {sibling.subentry_id}
     reload_mock.assert_not_called()
+
+
+@pytest.mark.parametrize("settings_first", [False, True])
+async def test_open_flows_and_queued_settings_preserve_all_updates(
+    hass: HomeAssistant, *, settings_first: bool
+) -> None:
+    """Actual options/reconfigure submissions and setters merge in either order."""
+    fixture = _fixture_subentry()
+    entry = _entry(subentries=(fixture,))
+    entry.add_to_hass(hass)
+    current = entry.subentries[fixture.subentry_id]
+    hass.config_entries.async_update_entry(entry, options={"future_option": "keep"})
+    hass.config_entries.async_update_subentry(
+        entry, current, data=dict(current.data) | {"future_field": {"keep": True}}
+    )
+    fixture_form = await entry.start_subentry_reconfigure_flow(
+        hass, fixture.subentry_id
+    )
+    options_form = await hass.config_entries.options.async_init(entry.entry_id)
+    settings = FadeSettings(hass, entry)
+
+    async def submit_flows() -> None:
+        result = await hass.config_entries.options.async_configure(
+            options_form["flow_id"],
+            {"startup_behavior": "zero", "blackout_on_shutdown": True},
+        )
+        assert result["type"] is FlowResultType.CREATE_ENTRY
+        result = await hass.config_entries.subentries.async_configure(
+            fixture_form["flow_id"], _fixture_input(name="Updated", address=8)
+        )
+        assert result["reason"] == "reconfigure_successful"
+
+    with patch.object(hass.config_entries, "async_schedule_reload") as reload:
+        async with settings._lock:
+            writes = [
+                asyncio.create_task(settings.async_set_global_fade_time(1.23)),
+                asyncio.create_task(
+                    settings.async_set_fixture_fade_time(fixture.unique_id, 0.5)
+                ),
+                asyncio.create_task(
+                    settings.async_set_fixture_fade_source(
+                        fixture.unique_id, "individual"
+                    )
+                ),
+            ]
+            await asyncio.sleep(0)
+            if not settings_first:
+                await submit_flows()
+        await asyncio.gather(*writes)
+        if settings_first:
+            await submit_flows()
+        assert reload.call_count == 2
+
+    assert dict(entry.options) == {
+        "future_option": "keep",
+        "global_fade_time": 1.23,
+        "startup_behavior": "zero",
+        "blackout_on_shutdown": True,
+    }
+    assert current.data["name"] == "Updated"
+    assert current.data["address"] == 8
+    assert current.data["future_field"] == {"keep": True}
+    assert current.data["id"] == current.unique_id == fixture.unique_id
+    assert settings.fixture_settings(fixture.unique_id) == (0.5, "individual")

@@ -52,11 +52,11 @@
 - Produce `FadeSettings(hass, entry)` with `global_fade_time: float`, `add_listener(callback: Callable[[], None]) -> Callable[[], None]`, `async_set_global_fade_time(value: object) -> None`, `async_set_fixture_fade_time(fixture_id: str, value: object) -> None`, `async_set_fixture_fade_source(fixture_id: str, value: object) -> None`, and `fixture_settings(fixture_id: str) -> tuple[float, FadeSource]` reading current subentry data.
 - Storage keys `global_fade_time`, `fade_time`, `fade_source`. Setters recheck existence after their common lock, use HA entry/subentry updates with fresh-data merges, and publish after successful updates. No runtime brightness/write dependency.
 
-- [ ] Write failing tests: defaults and roundtrip; values 0/2/0.015; reject True, strings, NaN, Inf, negative and >2; exact source; malformed stored configuration. Include raw identity compatibility.
-- [ ] Run targeted tests and record expected failures before production edits.
-- [ ] Implement constants/model/settings and flow merges. Reconfigure builds final data from the latest subentry plus changed six fixture fields, retains settings/unknown fields, rejects a deleted child. Existing options flow retains unknown/global keys. Config entry/subentry updates are synchronous inside the same event-loop critical section; don't hold stale dictionaries across awaits.
-- [ ] Verify simultaneous setters, no reload/DMX, interface isolation, source changes retaining individual time and individual zero; model/flow/options tests and full suite; Ruff on changed files.
-- [ ] Commit `feat: persist interface and dimmer fade settings`; report RED/GREEN commands and results.
+- [x] Write failing tests: defaults and roundtrip; values 0/2/0.015; reject True, strings, NaN, Inf, negative and >2; exact source; malformed stored configuration. Include raw identity compatibility.
+- [x] Run targeted tests and record expected failures before production edits.
+- [x] Implement constants/model/settings and flow merges. Reconfigure builds final data from the latest subentry plus changed six fixture fields, retains settings/unknown fields, rejects a deleted child. Existing options flow retains unknown/global keys. Config entry/subentry updates are synchronous inside the same event-loop critical section; don't hold stale dictionaries across awaits.
+- [x] Verify simultaneous setters, no reload/DMX, interface isolation, source changes retaining individual time and individual zero; model/flow/options tests and full suite; Ruff on changed files.
+- [x] Commit `feat: persist interface and dimmer fade settings`; report RED/GREEN commands and results.
 
 ### Task 2: Monotonic controller and shared dimmer runtime
 

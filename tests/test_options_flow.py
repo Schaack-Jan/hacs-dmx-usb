@@ -141,3 +141,29 @@ async def test_options_persist_json_safe_values_and_reload_once(
     assert isinstance(entry.options[CONF_STARTUP_BEHAVIOR], str)
     assert type(entry.options[CONF_BLACKOUT_ON_SHUTDOWN]) is bool
     reload_mock.assert_called_once_with(entry.entry_id)
+
+
+async def test_options_flow_preserves_latest_global_fade_time(
+    hass: HomeAssistant,
+) -> None:
+    """Options submitted after a settings write retain current unrelated keys."""
+    entry = _entry(options={"global_fade_time": 0.1, "future_option": "original"})
+    entry.add_to_hass(hass)
+    form = await _start_options_flow(hass, entry)
+    hass.config_entries.async_update_entry(
+        entry,
+        options=dict(entry.options)
+        | {"global_fade_time": 1.23, "future_option": "current"},
+    )
+    with patch.object(hass.config_entries, "async_schedule_reload"):
+        result = await hass.config_entries.options.async_configure(
+            form["flow_id"],
+            {CONF_STARTUP_BEHAVIOR: "zero", CONF_BLACKOUT_ON_SHUTDOWN: True},
+        )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert dict(entry.options) == {
+        "global_fade_time": 1.23,
+        "future_option": "current",
+        CONF_STARTUP_BEHAVIOR: "zero",
+        CONF_BLACKOUT_ON_SHUTDOWN: True,
+    }

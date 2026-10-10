@@ -213,7 +213,15 @@ async def test_create_dimmer_and_raw_fixtures_with_uuid4_boundaries(
         assert identity.version == 4
         assert str(identity) == stored.unique_id == stored.data["id"]
         assert stored.title == fixture[FIXTURE_NAME]
-        assert dict(stored.data) == {"id": stored.unique_id, **fixture}
+        assert dict(stored.data) == {
+            "id": stored.unique_id,
+            **fixture,
+            **(
+                {"fade_time": 0.0, "fade_source": "global"}
+                if fixture[FIXTURE_TYPE] == "dimmer"
+                else {}
+            ),
+        }
         if first_subentry_id is None:
             first_subentry_id = stored.subentry_id
         else:
@@ -605,3 +613,54 @@ async def test_remove_subentry_clears_only_owned_registry_entity(
     assert sibling.subentry_id in entry.subentries
     assert registry.async_get(removed.entity_id) is None
     assert registry.async_get(kept.entity_id) is kept
+
+
+async def test_reconfigure_preserves_latest_fade_settings_and_unknown_data(
+    hass: HomeAssistant,
+) -> None:
+    """An open form merges current overrides and unknown fields on submission."""
+    fixture = _fixture_subentry()
+    entry = _entry(subentries=(fixture,))
+    entry.add_to_hass(hass)
+    form = await entry.start_subentry_reconfigure_flow(hass, fixture.subentry_id)
+    current = entry.subentries[fixture.subentry_id]
+    hass.config_entries.async_update_subentry(
+        entry,
+        current,
+        data=dict(current.data)
+        | {
+            "fade_time": 1.23,
+            "fade_source": "individual",
+            "future_field": {"keep": True},
+        },
+    )
+    with patch.object(hass.config_entries, "async_schedule_reload"):
+        result = await hass.config_entries.subentries.async_configure(
+            form["flow_id"], _fixture_input(name="Updated")
+        )
+    assert result["reason"] == "reconfigure_successful"
+    assert current.data["fade_time"] == 1.23
+    assert current.data["fade_source"] == "individual"
+    assert current.data["future_field"] == {"keep": True}
+    assert current.unique_id == current.data["id"] == fixture.unique_id
+
+
+async def test_reconfigure_deleted_fixture_aborts_without_recreation(
+    hass: HomeAssistant,
+) -> None:
+    """Deleting a fixture while its form is open is terminal."""
+    fixture = _fixture_subentry()
+    sibling = _fixture_subentry(name="Sibling", address=2)
+    entry = _entry(subentries=(fixture, sibling))
+    entry.add_to_hass(hass)
+    form = await entry.start_subentry_reconfigure_flow(hass, fixture.subentry_id)
+    with patch.object(hass.config_entries, "async_schedule_reload") as reload_mock:
+        hass.config_entries.async_remove_subentry(entry, fixture.subentry_id)
+        reload_mock.reset_mock()
+        result = await hass.config_entries.subentries.async_configure(
+            form["flow_id"], _fixture_input()
+        )
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "unknown_subentry"
+    assert set(entry.subentries) == {sibling.subentry_id}
+    reload_mock.assert_not_called()

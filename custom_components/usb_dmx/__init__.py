@@ -207,9 +207,9 @@ def _validate_forwarded_platforms(
     previous_platforms: set[ep.EntityPlatform],
 ) -> None:
     """Detect platform-local failures hidden by HA's forwarding API."""
-    # HA 2026.9 catches platform setup and entity-addition exceptions. Its
-    # completion flag becomes true only after both have succeeded; forwarding
-    # itself does not expose the result. Inspect only this attempt's platforms.
+    # HA's forwarding API hides platform-function failures. Its completion flag
+    # marks successful platform setup, but does not certify each entity addition.
+    # Inspect only this attempt's platforms.
     completed = {
         platform.domain
         for platform in ep.async_get_platforms(hass, DOMAIN)

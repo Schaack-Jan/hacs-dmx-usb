@@ -384,3 +384,81 @@ def test_stop_contains_expected_backend_disconnect_failure() -> None:
         assert backend.disconnect_calls == 1
 
     asyncio.run(exercise())
+
+
+async def test_progress_even_when_byte_unchanged_and_exact_endpoint() -> None:
+    """Equal physical endpoints still publish timed logical progress and final frame."""
+    backend = FakeBackend()
+    controller = DmxController(backend)
+    await controller.async_start()
+    await controller.async_set_channel(1, 73)
+    progress = []
+    completed = asyncio.Event()
+
+    def publish(fraction: float) -> None:
+        progress.append(fraction)
+        if fraction == 1:
+            completed.set()
+
+    await controller.async_transition_channel(1, 73, 0.08, progress_callback=publish)
+    await asyncio.wait_for(completed.wait(), 1)
+    await asyncio.sleep(0)
+    assert len(progress) >= 3
+    assert 0 < progress[0] < 1
+    assert progress == sorted(progress)
+    assert progress[-1] == 1
+    assert len(backend.frames) == 2
+    await controller.async_stop()
+
+
+async def test_slow_writes_use_elapsed_time_and_publish_before_write() -> None:
+    """Backend latency cannot accumulate per-step delay or defer logical progress."""
+
+    class SlowBackend(FakeBackend):
+        async def send_frame(self, frame: bytes) -> None:
+            await asyncio.sleep(0.04)
+            await super().send_frame(frame)
+
+    backend = SlowBackend()
+    controller = DmxController(backend)
+    await controller.async_start()
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    observations = []
+    await controller.async_transition_channel(
+        1,
+        255,
+        0.15,
+        progress_callback=lambda fraction: observations.append(
+            (fraction, loop.time() - started, len(backend.frames))
+        ),
+    )
+    await asyncio.wait_for(_wait_until(lambda: not controller._transition_tasks), 1)
+    assert observations[-1][0] == 1
+    assert observations[-1][1] < 0.22
+    assert observations[0][2] == 0
+    assert backend.frames[-1][0] == 255
+    assert 2 <= len(backend.frames) <= 6
+    await controller.async_stop()
+
+
+async def test_cancel_transition_has_no_write_or_late_completion() -> None:
+    """Unload cancellation keeps current frame and invalidates obsolete callbacks."""
+    backend = FakeBackend()
+    controller = DmxController(backend)
+    await controller.async_start()
+    progress = []
+    await controller.async_transition_channel(
+        1, 255, 0.2, progress_callback=progress.append
+    )
+    await asyncio.sleep(0.045)
+    await controller.async_cancel_transition(1)
+    frame = controller.current_frame
+    count = len(backend.frames)
+    published = tuple(progress)
+    await asyncio.sleep(0.21)
+    assert controller.current_frame == frame
+    assert len(backend.frames) == count
+    assert tuple(progress) == published
+    assert 1 not in progress
+    await controller.async_stop()

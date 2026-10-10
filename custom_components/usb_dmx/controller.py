@@ -110,7 +110,12 @@ class DmxController:
             await self._async_set_channel_value(address, value)
 
     async def async_transition_channel(
-        self, address: int, value: int, duration: float
+        self,
+        address: int,
+        value: int,
+        duration: float,
+        *,
+        progress_callback: Callable[[float], None] | None = None,
     ) -> None:
         """Replace any address transition and interpolate from its current value."""
         self._validate_channel(address, value)
@@ -125,6 +130,7 @@ class DmxController:
                 return
             if duration == 0:
                 await self._cancel_transition(address)
+                self._publish_progress(progress_callback, 1.0)
                 await self._async_set_channel_value(address, value)
                 return
 
@@ -133,10 +139,18 @@ class DmxController:
                 start_value = self._frame[address - 1]
 
             task = self._create_task(
-                self._async_run_transition(address, start_value, value, duration),
+                self._async_run_transition(
+                    address, start_value, value, duration, progress_callback
+                ),
                 name=f"usb_dmx_transition_{address}",
             )
             self._transition_tasks[address] = task
+
+    async def async_cancel_transition(self, address: int) -> None:
+        """Cancel an address transition without changing or sending its current byte."""
+        self._validate_channel(address, 0)
+        async with self._transition_lifecycle_lock:
+            await self._cancel_transition(address)
 
     async def async_send_current_frame(self) -> None:
         """Send an immutable snapshot of the complete current universe."""
@@ -180,22 +194,48 @@ class DmxController:
             self._last_successful_frame_timestamp = datetime.now(UTC)
 
     async def _async_run_transition(
-        self, address: int, start: int, target: int, duration: float
+        self,
+        address: int,
+        start: int,
+        target: int,
+        duration: float,
+        progress_callback: Callable[[float], None] | None,
     ) -> None:
         task = asyncio.current_task()
-        steps = max(1, math.ceil(duration * _TRANSITION_STEPS_PER_SECOND))
-        interval = duration / steps
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        interval = 1 / _TRANSITION_STEPS_PER_SECOND
+        next_update = started + min(interval, duration)
         last_value = start
         try:
-            for step in range(1, steps + 1):
-                await asyncio.sleep(interval)
-                value = round(start + (target - start) * step / steps)
-                if value != last_value:
+            while True:
+                await asyncio.sleep(max(0, next_update - loop.time()))
+                if self._transition_tasks.get(address) is not task or self._stopping:
+                    return
+                now = loop.time()
+                fraction = min(1.0, (now - started) / duration)
+                value = round(start + (target - start) * fraction)
+                self._publish_progress(progress_callback, fraction)
+                if value != last_value or fraction == 1:
                     await self._async_set_channel_value(address, value)
                     last_value = value
+                if fraction == 1:
+                    return
+                # Skip missed samples instead of replaying a backlog of frame writes.
+                next_update = min(started + duration, now + interval)
         finally:
             if self._transition_tasks.get(address) is task:
                 self._transition_tasks.pop(address, None)
+
+    @staticmethod
+    def _publish_progress(
+        callback: Callable[[float], None] | None, fraction: float
+    ) -> None:
+        if callback is not None:
+            try:
+                callback(fraction)
+            except Exception:
+                _LOGGER.exception("USB DMX transition progress listener failed")
 
     async def _async_reconnect(self) -> None:
         task = asyncio.current_task()

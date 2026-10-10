@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import replace
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from homeassistant.config_entries import ConfigEntryNotReady
 from homeassistant.const import Platform
+from homeassistant.exceptions import ConfigEntryError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.usb_dmx import (
@@ -29,6 +32,7 @@ from custom_components.usb_dmx.models import StartupBehavior
 from .fakes import FakeBackend
 
 if TYPE_CHECKING:
+    from homeassistant.config_entries import ConfigSubentry
     from homeassistant.core import HomeAssistant
 
 
@@ -308,3 +312,74 @@ async def test_missing_options_default_to_no_shutdown_blackout(
 
     assert backend.frames == [bytes(512), bytes((123,)) + bytes(511)]
     assert backend.disconnect_calls == 1
+
+
+async def test_setup_initializes_settings_and_dimmers_before_forwarding(
+    hass: HomeAssistant,
+    make_fixture_subentry: Callable[..., ConfigSubentry],
+    make_usb_dmx_entry: Callable[..., MockConfigEntry],
+) -> None:
+    """All output runtimes exist before platform order can affect restore."""
+    dimmer = make_fixture_subentry(address=1)
+    raw = make_fixture_subentry(fixture_type="raw", address=2, name="Raw")
+    entry = make_usb_dmx_entry(dimmer, raw)
+    backend = FakeBackend()
+
+    async def forward(
+        forwarded_entry: MockConfigEntry, _platforms: tuple[Platform, ...]
+    ) -> None:
+        runtime = forwarded_entry.runtime_data
+        assert runtime.settings.global_fade_time == 0
+        assert set(runtime.dimmers) == {dimmer.unique_id}
+        assert runtime.dimmers[dimmer.unique_id].settings is runtime.settings
+        assert not runtime.dimmers[dimmer.unique_id].is_on
+        assert backend.frames == [bytes(512)]
+
+    with (
+        patch(
+            "custom_components.usb_dmx.async_create_backend",
+            AsyncMock(return_value=backend),
+        ),
+        patch.object(
+            hass.config_entries, "async_forward_entry_setups", side_effect=forward
+        ),
+    ):
+        assert await async_setup_entry(hass, entry)
+    await entry.runtime_data.controller.async_stop()
+
+
+@pytest.mark.parametrize(
+    ("key", "value"), [("global_fade_time", True), ("global_fade_time", float("nan"))]
+)
+async def test_setup_rejects_bad_settings_before_opening_hardware(
+    hass: HomeAssistant, key: str, value: object
+) -> None:
+    """Malformed persisted fade configuration becomes a controlled setup error."""
+    entry = _entry()
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        entry, options=dict(entry.options) | {key: value}
+    )
+    with patch(
+        "custom_components.usb_dmx.async_create_backend", new=AsyncMock()
+    ) as create:
+        with pytest.raises(ConfigEntryError, match="invalid_fade_time"):
+            await async_setup_entry(hass, entry)
+        create.assert_not_called()
+
+
+async def test_setup_rejects_bad_fixture_settings(
+    hass: HomeAssistant,
+    make_fixture_subentry: Callable[..., ConfigSubentry],
+    make_usb_dmx_entry: Callable[..., MockConfigEntry],
+) -> None:
+    """Every fixture is validated before startup even if its entities are disabled."""
+    subentry = make_fixture_subentry()
+    subentry = replace(subentry, data=dict(subentry.data) | {"fade_source": "broken"})
+    entry = make_usb_dmx_entry(subentry)
+    with patch(
+        "custom_components.usb_dmx.async_create_backend", new=AsyncMock()
+    ) as create:
+        with pytest.raises(ConfigEntryError, match="invalid_fade_source"):
+            await async_setup_entry(hass, entry)
+        create.assert_not_called()

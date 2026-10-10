@@ -118,6 +118,9 @@ async def test_number_platform_filters_fixtures_and_preserves_subentry_ownership
     await async_setup_entry(hass, entry, add_entities)
 
     assert [(entity.unique_id, owner) for entity, owner in added] == [
+        (f"{entry.entry_id}_global_fade_time", None),
+        (f"{entry.entry_id}_{DIMMER_ID}_level", dimmer.subentry_id),
+        (f"{entry.entry_id}_{DIMMER_ID}_fade_time", dimmer.subentry_id),
         (f"{entry.entry_id}_{RAW_ID}", first.subentry_id),
         (f"{entry.entry_id}_{SECOND_RAW_ID}", second.subentry_id),
     ]
@@ -155,13 +158,13 @@ async def test_number_and_light_share_one_physical_device(
         *,
         config_subentry_id: str | None = None,
     ) -> None:
-        assert config_subentry_id == raw.subentry_id
+        assert config_subentry_id in (None, raw.subentry_id, dimmer.subentry_id)
         numbers.extend(entities)
 
     await async_setup_light_entry(hass, entry, add_lights)
     await async_setup_entry(hass, entry, add_numbers)
     light = lights[0]
-    number = numbers[0]
+    number = next(entity for entity in numbers if isinstance(entity, UsbDmxRawChannel))
 
     assert light.device_entry is number.device_entry
     assert light.device_entry.config_subentry_id is None
@@ -332,7 +335,7 @@ async def test_loaded_subentry_deletion_removes_owned_entity_only(
             blocking=True,
         )
         assert controller.current_frame[19] == 255
-        assert len(controller._availability_listeners) == 2
+        assert len(controller._availability_listeners) == 3
 
         assert hass.config_entries.async_remove_subentry(entry, raw.subentry_id)
         await hass.async_block_till_done()
@@ -345,7 +348,7 @@ async def test_loaded_subentry_deletion_removes_owned_entity_only(
         assert registry.async_get(light_id) is not None
         assert controller.current_frame[19] == 0
         assert backend.frames[-1][19] == 0
-        assert len(controller._availability_listeners) == 1
+        assert len(controller._availability_listeners) == 2
 
         await hass.services.async_call(
             "light",
@@ -424,7 +427,7 @@ async def test_running_and_queued_number_commands_cannot_outlive_fixture_removal
         await service_gate.acquire_started.wait()
 
         assert hass.config_entries.async_remove_subentry(entry, raw.subentry_id)
-        await _wait_until(lambda: len(controller._availability_listeners) == 1)
+        await _wait_until(lambda: len(controller._availability_listeners) == 2)
         backend.send_gate.set()
 
         await asyncio.gather(active, queued)
@@ -436,7 +439,7 @@ async def test_running_and_queued_number_commands_cannot_outlive_fixture_removal
         assert registry.async_get(number_id) is None
         assert hass.states.get(light_id) is not None
         assert registry.async_get(light_id) is not None
-        assert len(controller._availability_listeners) == 1
+        assert len(controller._availability_listeners) == 2
 
         assert await hass.config_entries.async_unload(entry.entry_id)
 

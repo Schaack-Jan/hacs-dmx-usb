@@ -158,5 +158,27 @@
     "interface": {
       "name": "USB-DMX-Schnittstelle"
     }
+  },
+  "entity": {
+    "number": {
+      "level": {
+        "name": "{fixture_name} Helligkeit"
+      },
+      "fade_time": {
+        "name": "{fixture_name} Fadezeit"
+      },
+      "global_fade_time": {
+        "name": "Globale Fadezeit"
+      }
+    },
+    "select": {
+      "fade_source": {
+        "name": "{fixture_name} Fadequelle",
+        "state": {
+          "global": "Global",
+          "individual": "Individuell"
+        }
+      }
+    }
   }
 }

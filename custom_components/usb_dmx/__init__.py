@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
-from homeassistant.config_entries import ConfigEntry, ConfigEntryNotReady
+from homeassistant.config_entries import (
+    SIGNAL_CONFIG_ENTRY_CHANGED,
+    ConfigEntry,
+    ConfigEntryChange,
+    ConfigEntryNotReady,
+)
 from homeassistant.const import Platform
+from homeassistant.core import callback
 from homeassistant.exceptions import ConfigEntryError
+from homeassistant.helpers import entity_platform as ep
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from .backends.base import BackendError, DmxBackend
 from .backends.serial_pro import SerialProBackend
@@ -20,16 +28,17 @@ from .const import (
     CONF_STARTUP_BEHAVIOR,
     DEFAULT_BLACKOUT_ON_SHUTDOWN,
     DEFAULT_STARTUP_BEHAVIOR,
+    DOMAIN,
 )
 from .controller import DmxController
 from .dimmer import DimmerRuntime
-from .models import FixtureType, StartupBehavior
+from .models import FixtureConfig, FixtureType, StartupBehavior
 from .settings import FadeSettings
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
-PLATFORMS = (Platform.LIGHT, Platform.NUMBER)
+PLATFORMS = (Platform.LIGHT, Platform.NUMBER, Platform.SELECT)
 
 
 @dataclass(slots=True)
@@ -41,6 +50,14 @@ class UsbDmxRuntime:
     startup_behavior: StartupBehavior
     settings: FadeSettings | None = None
     dimmers: dict[str, DimmerRuntime] = field(default_factory=dict)
+
+    def get_dimmer(self, fixture: FixtureConfig) -> DimmerRuntime:
+        """Get the common fixture runtime, including manually constructed entries."""
+        if fixture.fixture_id not in self.dimmers:
+            self.dimmers[fixture.fixture_id] = DimmerRuntime(
+                self.controller, fixture, self.settings
+            )
+        return self.dimmers[fixture.fixture_id]
 
 
 type UsbDmxConfigEntry = ConfigEntry[UsbDmxRuntime]
@@ -76,11 +93,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: UsbDmxConfigEntry) -> bo
         raise ConfigEntryError(str(err)) from err
     backend = await async_create_backend(entry)
     controller = DmxController(backend)
-    dimmers = {
-        fixture.fixture_id: DimmerRuntime(controller, fixture, settings)
-        for _, fixture in fixtures
-        if fixture.fixture_type is FixtureType.DIMMER
-    }
+    runtime = UsbDmxRuntime(controller, backend, startup_behavior, settings)
+    for _, fixture in fixtures:
+        if fixture.fixture_type is FixtureType.DIMMER:
+            runtime.get_dimmer(fixture)
+    dimmers = runtime.dimmers
 
     try:
         await controller.async_start()
@@ -97,20 +114,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: UsbDmxConfigEntry) -> bo
         msg = "Unable to send initial DMX zero frame"
         raise ConfigEntryNotReady(msg)
 
-    entry.runtime_data = UsbDmxRuntime(
-        controller=controller,
-        backend=backend,
-        startup_behavior=startup_behavior,
-        settings=settings,
-        dimmers=dimmers,
-    )
+    entry.runtime_data = runtime
+    from .entity import cleanup_obsolete_entities  # noqa: PLC0415
+
+    cleanup_obsolete_entities(hass, entry, fixtures)
+
+    unsubscribe_removal = _subscribe_fixture_removal(hass, entry)
+    previous_platforms = set(ep.async_get_platforms(hass, DOMAIN))
     try:
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     except BaseException:
+        unsubscribe_removal()
         for dimmer in dimmers.values():
             await dimmer.async_remove(blackout=False)
-        await controller.async_stop()
-        del entry.runtime_data
+        try:
+            await _async_cleanup_failed_platforms(hass, entry, previous_platforms)
+        finally:
+            await controller.async_stop()
+            del entry.runtime_data
         raise
 
     return True
@@ -130,3 +151,49 @@ async def async_unload_entry(hass: HomeAssistant, entry: UsbDmxConfigEntry) -> b
             )
         )
     return True
+
+
+@callback
+def _subscribe_fixture_removal(
+    hass: HomeAssistant, entry: UsbDmxConfigEntry
+) -> Callable[[], None]:
+    """Observe deletion without interfering with automatic flow reloads."""
+    runtime = entry.runtime_data
+
+    @callback
+    def entry_changed(change: ConfigEntryChange, changed: ConfigEntry) -> None:
+        """Clean up removed runtimes even when every companion is disabled."""
+        if change is ConfigEntryChange.UPDATED and changed is entry:
+            present = {subentry.unique_id for subentry in entry.subentries.values()}
+            for fixture_id, dimmer in runtime.dimmers.items():
+                if fixture_id not in present:
+                    hass.async_create_task(dimmer.async_remove(blackout=True))
+
+    remove_listener = async_dispatcher_connect(
+        hass, SIGNAL_CONFIG_ENTRY_CHANGED, entry_changed
+    )
+
+    @callback
+    def unsubscribe() -> None:
+        """Allow immediate setup-failure cleanup and subsequent HA unload cleanup."""
+        nonlocal remove_listener
+        if remove_listener is not None:
+            remove_listener()
+            remove_listener = None
+
+    entry.async_on_unload(unsubscribe)
+    return unsubscribe
+
+
+async def _async_cleanup_failed_platforms(
+    hass: HomeAssistant,
+    entry: UsbDmxConfigEntry,
+    previous_platforms: set[ep.EntityPlatform],
+) -> None:
+    """Unwind newly forwarded platforms before a setup failure closes transport."""
+    platforms = {
+        platform.domain
+        for platform in ep.async_get_platforms(hass, DOMAIN)
+        if platform.config_entry is entry and platform not in previous_platforms
+    }
+    await hass.config_entries.async_unload_platforms(entry, platforms)

@@ -115,8 +115,14 @@ def test_translation_files_match_canonical_tree_and_placeholders() -> None:
 
     assert _key_tree(german) == _key_tree(english)
     assert _placeholder_tree(german) == _placeholder_tree(english)
-    assert "entity" not in english
-    assert "entity" not in german
+    assert set(english["entity"]["number"]) == {
+        "level",
+        "fade_time",
+        "global_fade_time",
+    }
+    assert set(english["entity"]["select"]) == {"fade_source"}
+    assert english["entity"]["number"]["level"]["name"] == "{fixture_name} Level"
+    assert german["entity"]["number"]["level"]["name"] == "{fixture_name} Helligkeit"
     assert english["selector"]["device"]["options"]["manual_path"] == (
         "Enter a serial device path manually"
     )

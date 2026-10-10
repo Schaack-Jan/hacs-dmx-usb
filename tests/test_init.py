@@ -8,9 +8,13 @@ from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from homeassistant.config_entries import ConfigEntryNotReady
+from homeassistant.config_entries import (
+    SIGNAL_CONFIG_ENTRY_CHANGED,
+    ConfigEntryNotReady,
+)
 from homeassistant.const import Platform
 from homeassistant.exceptions import ConfigEntryError
+from homeassistant.helpers.dispatcher import DATA_DISPATCHER
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.usb_dmx import (
@@ -72,7 +76,7 @@ async def test_setup_connects_before_forwarding_and_stores_runtime(
         assert backend.connected
         assert backend.frames == [bytes(512)]
         assert forwarded_entry.runtime_data.backend is backend
-        assert platforms == (Platform.LIGHT, Platform.NUMBER)
+        assert platforms == (Platform.LIGHT, Platform.NUMBER, Platform.SELECT)
 
     with (
         patch(
@@ -247,7 +251,9 @@ async def test_successful_unload_stops_transport_and_honors_blackout(
     ) as unload_mock:
         assert await async_unload_entry(hass, entry)
 
-    unload_mock.assert_awaited_once_with(entry, (Platform.LIGHT, Platform.NUMBER))
+    unload_mock.assert_awaited_once_with(
+        entry, (Platform.LIGHT, Platform.NUMBER, Platform.SELECT)
+    )
     assert backend.disconnect_calls == 1
     assert not backend.connected
     assert entry.runtime_data.controller.available is False
@@ -383,3 +389,49 @@ async def test_setup_rejects_bad_fixture_settings(
         with pytest.raises(ConfigEntryError, match="invalid_fade_source"):
             await async_setup_entry(hass, entry)
         create.assert_not_called()
+
+
+async def test_fixture_bearing_forward_failure_releases_subscriptions(
+    hass: HomeAssistant,
+    make_fixture_subentry: Callable[..., ConfigSubentry],
+    make_usb_dmx_entry: Callable[..., MockConfigEntry],
+) -> None:
+    """Platform failure cannot leak runtime settings or deletion observation."""
+    entry = make_usb_dmx_entry(make_fixture_subentry())
+    entry.add_to_hass(hass)
+    captured = []
+    listeners_before = set(
+        hass.data.get(DATA_DISPATCHER, {}).get(SIGNAL_CONFIG_ENTRY_CHANGED, {})
+    )
+
+    async def forward(
+        forwarded: MockConfigEntry, _platforms: tuple[Platform, ...]
+    ) -> None:
+        captured.append(forwarded.runtime_data)
+        assert len(forwarded.runtime_data.settings._listeners) == 1
+        message = "platform failed"
+        raise RuntimeError(message)
+
+    with (
+        patch(
+            "custom_components.usb_dmx.async_create_backend",
+            AsyncMock(return_value=FakeBackend()),
+        ),
+        patch.object(
+            hass.config_entries, "async_forward_entry_setups", side_effect=forward
+        ),
+        pytest.raises(RuntimeError, match="platform failed"),
+    ):
+        await async_setup_entry(hass, entry)
+    shared = captured[0]
+    assert shared.settings._listeners == []
+    assert shared.controller._availability_listeners == []
+    assert shared.controller._transition_tasks == {}
+    assert all(
+        dimmer._unsubscribe_settings is None and dimmer._listeners == []
+        for dimmer in shared.dimmers.values()
+    )
+    assert (
+        set(hass.data.get(DATA_DISPATCHER, {}).get(SIGNAL_CONFIG_ENTRY_CHANGED, {}))
+        == listeners_before
+    )

@@ -51,6 +51,11 @@ class DimmerRuntime:
             )
 
     @property
+    def restore_resolved(self) -> bool:
+        """Report whether the common output restore source has been consumed."""
+        return self._restored
+
+    @property
     def brightness(self) -> int | None:
         """Publish at least one while continuous logical output is still positive."""
         return max(1, round(self.logical_brightness)) if self.is_on else None

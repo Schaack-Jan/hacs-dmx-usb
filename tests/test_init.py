@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import replace
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, patch
@@ -38,6 +38,17 @@ from .fakes import FakeBackend
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigSubentry
     from homeassistant.core import HomeAssistant
+
+
+@pytest.fixture(autouse=True)
+def _mock_completed_forwarding() -> Iterator[None]:
+    """
+    Keep isolated transport tests independent of their mocked HA loader.
+
+    Real platform completion and rollback are covered in test_dimmer_lifecycle.
+    """
+    with patch("custom_components.usb_dmx._validate_forwarded_platforms"):
+        yield
 
 
 def _entry(

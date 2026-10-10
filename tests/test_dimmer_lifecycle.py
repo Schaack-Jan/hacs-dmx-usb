@@ -8,11 +8,17 @@ from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from homeassistant.config_entries import SIGNAL_CONFIG_ENTRY_CHANGED, ConfigEntryState
 from homeassistant.const import Platform
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_platform as ep
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import restore_state as rs
+from homeassistant.helpers.dispatcher import DATA_DISPATCHER
 
+from custom_components.usb_dmx import number as number_platform
+from custom_components.usb_dmx import select as select_platform
 from custom_components.usb_dmx.const import DOMAIN
 from custom_components.usb_dmx.models import StartupBehavior
 
@@ -22,7 +28,10 @@ from .test_dimmer_entities import _ids
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigSubentry
     from homeassistant.core import HomeAssistant
+    from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
     from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.usb_dmx import UsbDmxRuntime
 
 pytestmark = pytest.mark.usefixtures(
     "enable_custom_integrations", "_mock_usb_dependency"
@@ -294,3 +303,138 @@ async def test_partially_loaded_platform_failure_removes_entity_subscriptions(
         assert await hass.config_entries.async_reload(entry.entry_id)
         assert _ids(hass, entry, fixture.unique_id)
         assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+def _assert_failed_setup_cleanup(
+    hass: HomeAssistant,
+    entry: MockConfigEntry,
+    shared: UsbDmxRuntime,
+    restore_before: set[str],
+    deletion_before: set[Callable[..., None]],
+) -> None:
+    """Check every entry-owned subscription after an actual platform failure."""
+    assert not hasattr(entry, "runtime_data")
+    assert shared.settings._listeners == []
+    assert shared.controller._availability_listeners == []
+    assert shared.controller._transition_tasks == {}
+    assert all(
+        dimmer._listeners == [] and dimmer._unsubscribe_settings is None
+        for dimmer in shared.dimmers.values()
+    )
+    assert set(rs.async_get(hass).entities) == restore_before
+    assert (
+        set(hass.data.get(DATA_DISPATCHER, {}).get(SIGNAL_CONFIG_ENTRY_CHANGED, {}))
+        == deletion_before
+    )
+    assert all(
+        not platform.entities
+        for platform in ep.async_get_platforms(hass, DOMAIN)
+        if platform.config_entry is entry
+    )
+
+
+@pytest.mark.parametrize("failed_domain", [Platform.NUMBER, Platform.SELECT])
+async def test_real_platform_setup_failure_rolls_back_and_preserves_other_interface(
+    hass: HomeAssistant,
+    make_fixture_subentry: Callable[..., ConfigSubentry],
+    make_usb_dmx_entry: Callable[..., MockConfigEntry],
+    failed_domain: Platform,
+) -> None:
+    """An exception swallowed inside HA platform setup still fails the parent."""
+    fixture, other_fixture = (
+        make_fixture_subentry(name="Front"),
+        make_fixture_subentry(name="Back"),
+    )
+    entry = make_usb_dmx_entry(fixture, startup_behavior=StartupBehavior.ZERO)
+    other = make_usb_dmx_entry(
+        other_fixture, startup_behavior=StartupBehavior.ZERO, title="Other Interface"
+    )
+    other.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        other,
+        unique_id="dmx-other",
+        data=dict(other.data)
+        | {"device": "/dev/serial/by-id/dmx-other", "interface_id": "dmx-other"},
+    )
+    failed_backend, other_backend, retry_backend = (
+        FakeBackend(),
+        FakeBackend(),
+        FakeBackend(),
+    )
+    captured = []
+    module = {Platform.NUMBER: number_platform, Platform.SELECT: select_platform}[
+        failed_domain
+    ]
+    original_setup = module.async_setup_entry
+
+    async def fail_inside_platform(
+        platform_hass: HomeAssistant,
+        forwarded: MockConfigEntry,
+        add_entities: AddConfigEntryEntitiesCallback,
+    ) -> None:
+        await original_setup(platform_hass, forwarded, add_entities)
+        if forwarded is not entry:
+            return
+        platform = ep.current_platform.get()
+        # Finish actual entity addition, including RestoreEntity registration,
+        # before failing inside HA's platform setup exception boundary.
+        await asyncio.gather(*platform._tasks)
+        shared = forwarded.runtime_data
+        captured.append(shared)
+        assert platform.entities
+        message = "failure inside actual platform setup"
+        raise RuntimeError(message)
+
+    with patch(
+        "custom_components.usb_dmx.async_create_backend",
+        AsyncMock(side_effect=[other_backend, failed_backend, retry_backend]),
+    ):
+        assert await hass.config_entries.async_setup(other.entry_id)
+        entry.add_to_hass(hass)
+        other_runtime = other.runtime_data
+        other_ids = _ids(hass, other, other_fixture.unique_id)
+        await hass.services.async_call(
+            "light",
+            "turn_on",
+            {"entity_id": other_ids["light"], "brightness": 76},
+            blocking=True,
+        )
+        other_frames, other_availability, other_settings = (
+            list(other_backend.frames),
+            list(other_runtime.controller._availability_listeners),
+            list(other_runtime.settings._listeners),
+        )
+        restore_before = set(rs.async_get(hass).entities)
+        deletion_before = set(
+            hass.data.get(DATA_DISPATCHER, {}).get(SIGNAL_CONFIG_ENTRY_CHANGED, {})
+        )
+        with patch.object(
+            module, "async_setup_entry", side_effect=fail_inside_platform
+        ):
+            assert not await hass.config_entries.async_setup(entry.entry_id)
+        assert entry.state is ConfigEntryState.SETUP_RETRY
+        _assert_failed_setup_cleanup(
+            hass, entry, captured[0], restore_before, deletion_before
+        )
+        assert not failed_backend.connected
+        assert failed_backend.disconnect_calls == 1
+        assert other.state is ConfigEntryState.LOADED
+        assert other.runtime_data is other_runtime
+        assert other_backend.connected
+        assert other_backend.frames == other_frames
+        assert other_runtime.controller._availability_listeners == other_availability
+        assert other_runtime.settings._listeners == other_settings
+        assert hass.states.get(other_ids["light"]).attributes["brightness"] == 76
+        assert await hass.config_entries.async_reload(entry.entry_id)
+        assert entry.state is ConfigEntryState.LOADED
+        assert _ids(hass, entry, fixture.unique_id)
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        assert other_backend.connected
+        await hass.services.async_call(
+            "number",
+            "set_value",
+            {"entity_id": other_ids["level"], "value": 0.5},
+            blocking=True,
+        )
+        assert other_runtime.dimmers[other_fixture.unique_id].brightness == 128
+        assert await hass.config_entries.async_unload(other.entry_id)

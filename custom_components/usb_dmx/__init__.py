@@ -123,6 +123,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: UsbDmxConfigEntry) -> bo
     previous_platforms = set(ep.async_get_platforms(hass, DOMAIN))
     try:
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+        _validate_forwarded_platforms(hass, entry, previous_platforms)
     except BaseException:
         unsubscribe_removal()
         for dimmer in dimmers.values():
@@ -197,3 +198,25 @@ async def _async_cleanup_failed_platforms(
         if platform.config_entry is entry and platform not in previous_platforms
     }
     await hass.config_entries.async_unload_platforms(entry, platforms)
+
+
+@callback
+def _validate_forwarded_platforms(
+    hass: HomeAssistant,
+    entry: UsbDmxConfigEntry,
+    previous_platforms: set[ep.EntityPlatform],
+) -> None:
+    """Detect platform-local failures hidden by HA's forwarding API."""
+    # HA 2026.9 catches platform setup and entity-addition exceptions. Its
+    # completion flag becomes true only after both have succeeded; forwarding
+    # itself does not expose the result. Inspect only this attempt's platforms.
+    completed = {
+        platform.domain
+        for platform in ep.async_get_platforms(hass, DOMAIN)
+        if platform.config_entry is entry
+        and platform not in previous_platforms
+        and platform._setup_complete  # noqa: SLF001
+    }
+    if missing := set(PLATFORMS) - completed:
+        message = f"Unable to set up USB DMX platforms: {', '.join(sorted(missing))}"
+        raise ConfigEntryNotReady(message)

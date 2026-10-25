@@ -3,7 +3,7 @@
 USB DMX is a custom Home Assistant integration for controlling one local
 DMX512 universe through a serial interface that implements the DMX USB Pro
 protocol. It creates brightness lights, native normalized dimmer faders and
-fade controls, plus number entities for raw channel values.
+fade controls, RGB/RGBW color lights, plus number entities for raw channel values.
 
 Version 0.1.0 has not been tested with physical hardware. Devices described as
 compatible are classified by protocol only; see
@@ -18,11 +18,15 @@ V1 supports:
 - single-channel dimmers as Home Assistant lights and native 0–1 faders;
 - persistent global and individual fade times with selectable inheritance;
 - single raw channels as integer number entities from 0 through 255;
+- fixed-order RGB (3-channel) and RGBW (4-channel) lights, with brightness and
+  color control through native Home Assistant Light entities;
+- automatic reservation and overlap validation of each fixture's DMX footprint;
 - Home Assistant UI configuration, fixture management, reconnect, diagnostics,
   English, and German.
 
 It does not support OpenDMX, uDMX, Art-Net, sACN, OLA, MQTT, RDM, DMX input,
-RGB fixture profiles, or multiple universes per interface. A USB-to-serial chip
+manufacturer-specific fixture profiles, moving heads, reordered channels,
+master dimmers, 16-bit channels, color fades, or multiple universes per interface. A USB-to-serial chip
 such as FTDI, CP210x, or CH340 does not by itself identify a compatible DMX
 protocol.
 
@@ -74,14 +78,17 @@ steps.
    `/dev/serial/by-id` is preferred when available.
 3. Confirm only interfaces known to implement the DMX USB Pro protocol.
 4. Open the integration entry and add a **DMX fixture**.
-5. Choose a unique address from 1 through 512 and either:
+5. Choose a start address whose complete footprint fits within channels 1–512.
+   The integration rejects overlapping fixture ranges. Select one of:
    - **Dimmer light**: Home Assistant brightness is scaled to the configured
      minimum and maximum. Off always sends zero.
    - **Raw channel**: the entity writes an unscaled integer from 0 through 255;
      fixture minimum and maximum do not change this range.
+   - **RGB light**: reserves consecutive R, G, and B channels.
+   - **RGBW light**: reserves consecutive R, G, B, and W channels.
 
 Fixtures can be renamed or moved to another free address without changing
-their identity. Deleting a fixture removes its entities and clears its channel.
+their identity. Deleting a fixture removes its entities and clears every channel it owns.
 
 The integration options control startup and clean shutdown:
 
@@ -90,6 +97,30 @@ The integration options control startup and clean shutdown:
 - **Send blackout on clean shutdown** sends one zero frame before the serial
   connection closes. It cannot guarantee blackout after power loss, a host
   crash, or a removed cable.
+
+## RGB and RGBW fixtures
+
+Select **RGB light** for a fixture whose documented DMX mode is exactly
+`Red, Green, Blue` (3 channels), or **RGBW light** for the mode exactly
+`Red, Green, Blue, White` (4 channels). Each fixture is one native Home
+Assistant color light; brightness scales each selected color component before
+sending one complete DMX frame. Turning off sends zero to all of its channels.
+
+For example, RGB at address 20 owns channels 20–22, and RGBW at address 23
+owns channels 23–26. Another fixture cannot start on any channel already
+reserved by one of these fixtures. Color fixtures use direct 8-bit channel
+values; the minimum/maximum fields apply only to single-channel dimmers.
+
+The new color lights honor **Restore saved light states** by restoring valid
+last-known colors and brightness. **Start at zero** always starts with color
+channels blacked out. Color changes are immediate; the dimmer fade controls
+and Light transition feature apply only to single-channel dimmers.
+
+**Important:** Many commercial PARs use modes such as
+`Dimmer, Red, Green, Blue, Strobe`, or have nonstandard channel order.
+Do not select a plain RGB/RGBW mode for those fixtures: the wrong channel
+mapping may activate a strobe or other functions. Manufacturer-specific DMX
+personalities and free channel mapping are planned separately.
 
 ## Native dimmer faders and fade controls
 

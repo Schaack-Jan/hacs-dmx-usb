@@ -66,9 +66,9 @@
         "unknown_subentry": "Dieses DMX-Gerät existiert nicht mehr."
       },
       "error": {
-        "invalid_address": "Die DMX-Adresse muss zwischen 1 und 512 liegen.",
+        "invalid_address": "Die Startadresse und sämtliche Kanäle des Geräts müssen im DMX-Bereich 1–512 liegen.",
         "invalid_range": "Minimum und Maximum müssen zwischen 0 und 255 liegen; das Minimum darf das Maximum nicht überschreiten.",
-        "duplicate_address": "Diese DMX-Adresse ist bereits einem anderen Gerät zugeordnet.",
+        "duplicate_address": "Mindestens ein DMX-Kanal ist bereits durch ein anderes Gerät belegt.",
         "duplicate_name": "Dieser Gerätename wird bereits verwendet.",
         "invalid_fixture": "Eine gültige Gerätekonfiguration eingeben.",
         "invalid_fade_time": "Die Fadezeit muss eine endliche Zahl zwischen 0 und 2 Sekunden sein.",
@@ -77,7 +77,7 @@
       "step": {
         "user": {
           "title": "DMX-Gerät hinzufügen",
-          "description": "Eine einkanalige Dimmer- oder DMX-Rohwert-Entität erstellen.",
+          "description": "Dimmer, Rohkanal, RGB- oder RGBW-Gerät anlegen.",
           "data": {
             "type": "Gerätetyp",
             "name": "Name",
@@ -86,11 +86,11 @@
             "maximum": "Maximaler Ausgangswert"
           },
           "data_description": {
-            "type": "Dimmer skalieren die Home-Assistant-Helligkeit; Rohwertkanäle stellen Werte von 0 bis 255 bereit.",
+            "type": "Dimmer und Rohkanal verwenden einen Kanal, RGB die Reihenfolge R/G/B und RGBW R/G/B/W.",
             "name": "In Home Assistant angezeigter Name.",
-            "address": "DMX-Kanal von 1 bis 512.",
-            "minimum": "Unterer Ausgangswert für die Helligkeitsskalierung des Dimmers.",
-            "maximum": "Oberer Ausgangswert für die Helligkeitsskalierung des Dimmers."
+            "address": "Erste DMX-Adresse; alle Kanäle müssen ohne Überschneidung in das Universum passen.",
+            "minimum": "Untere Ausgangsgrenze nur für Dimmer (nicht für RGB, RGBW oder Rohkanal).",
+            "maximum": "Obere Ausgangsgrenze nur für Dimmer (nicht für RGB, RGBW oder Rohkanal)."
           }
         },
         "reconfigure": {
@@ -104,11 +104,11 @@
             "maximum": "Maximaler Ausgangswert"
           },
           "data_description": {
-            "type": "Dimmer skalieren die Home-Assistant-Helligkeit; Rohwertkanäle stellen Werte von 0 bis 255 bereit.",
+            "type": "Dimmer und Rohkanal verwenden einen Kanal, RGB die Reihenfolge R/G/B und RGBW R/G/B/W.",
             "name": "In Home Assistant angezeigter Name.",
-            "address": "DMX-Kanal von 1 bis 512.",
-            "minimum": "Unterer Ausgangswert für die Helligkeitsskalierung des Dimmers.",
-            "maximum": "Oberer Ausgangswert für die Helligkeitsskalierung des Dimmers."
+            "address": "Erste DMX-Adresse; alle Kanäle müssen ohne Überschneidung in das Universum passen.",
+            "minimum": "Untere Ausgangsgrenze nur für Dimmer (nicht für RGB, RGBW oder Rohkanal).",
+            "maximum": "Obere Ausgangsgrenze nur für Dimmer (nicht für RGB, RGBW oder Rohkanal)."
           }
         }
       }
@@ -147,7 +147,9 @@
     "fixture_type": {
       "options": {
         "dimmer": "Dimmer-Licht",
-        "raw": "Rohwertkanal"
+        "raw": "Rohwertkanal",
+        "rgb": "RGB-Licht (3 Kanäle)",
+        "rgbw": "RGBW-Licht (4 Kanäle)"
       }
     },
     "startup_behavior": {

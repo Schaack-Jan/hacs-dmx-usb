@@ -130,7 +130,9 @@ class UsbDmxEntity(Entity):
                 for subentry in self.entry.get_subentries_of_type(SUBENTRY_TYPE_FIXTURE)
             ):
                 return
-            await self.controller.async_set_channel(self.fixture.address, 0)
+            await self.controller.async_set_channels(
+                dict.fromkeys(self.fixture.occupied_addresses, 0)
+            )
 
     @callback
     def _async_handle_availability_update(
@@ -166,8 +168,10 @@ def cleanup_obsolete_entities(
                     ("select", f"{base}_fade_source"),
                 }
             )
-        else:
+        elif fixture.fixture_type is FixtureType.RAW:
             expected.add(("number", base))
+        else:
+            expected.add(("light", base))
     registry = er.async_get(hass)
     for registered in er.async_entries_for_config_entry(registry, entry.entry_id):
         if (

@@ -149,7 +149,7 @@ def test_fixture_from_mapping_rejects_unknown_fixture_type() -> None:
     """Unknown stored fixture types fail with the stable invalid-fixture code."""
     stored = {
         "id": "8091f8d2-16fd-4da8-b663-943b52fcde41",
-        "type": "rgb",
+        "type": "moving_head",
         "name": "Unsupported fixture",
         "address": 1,
         "minimum": 0,
@@ -179,7 +179,7 @@ def test_domain_models_are_frozen_and_slotted() -> None:
 
 def test_enum_storage_values_are_stable() -> None:
     """Persisted enum values match the config and options schema."""
-    assert [member.value for member in FixtureType] == ["dimmer", "raw"]
+    assert [member.value for member in FixtureType] == ["dimmer", "raw", "rgb", "rgbw"]
     assert [member.value for member in StartupBehavior] == ["restore", "zero"]
 
 

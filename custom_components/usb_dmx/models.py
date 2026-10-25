@@ -30,6 +30,8 @@ class FixtureType(StrEnum):
 
     DIMMER = "dimmer"
     RAW = "raw"
+    RGB = "rgb"
+    RGBW = "rgbw"
 
 
 class FadeSource(StrEnum):
@@ -78,7 +80,7 @@ def validate_fade_source(value: object) -> FadeSource:
 
 @dataclass(frozen=True, slots=True)
 class FixtureConfig:
-    """Stored configuration for one single-slot DMX fixture."""
+    """Stored configuration for one DMX fixture and its channel footprint."""
 
     fixture_id: str
     fixture_type: FixtureType
@@ -88,6 +90,21 @@ class FixtureConfig:
     maximum: int
     fade_time: float = 0.0
     fade_source: FadeSource = FadeSource.GLOBAL
+
+    @property
+    def channel_count(self) -> int:
+        """Return the number of consecutive DMX slots consumed by the fixture."""
+        return {
+            FixtureType.DIMMER: 1,
+            FixtureType.RAW: 1,
+            FixtureType.RGB: 3,
+            FixtureType.RGBW: 4,
+        }[self.fixture_type]
+
+    @property
+    def occupied_addresses(self) -> range:
+        """Return all one-based addresses reserved by this fixture."""
+        return range(self.address, self.address + self.channel_count)
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, object]) -> FixtureConfig:
@@ -188,7 +205,8 @@ def validate_fixtures(fixtures: Collection[FixtureConfig]) -> None:
 
         if (
             type(fixture.address) is not int
-            or not 1 <= fixture.address <= DMX_CHANNEL_COUNT
+            or not 1 <= fixture.address
+            or fixture.address + fixture.channel_count - 1 > DMX_CHANNEL_COUNT
         ):
             raise FixtureValidationError("invalid_address")
 
@@ -202,7 +220,7 @@ def validate_fixtures(fixtures: Collection[FixtureConfig]) -> None:
         validate_fade_time(fixture.fade_time)
         validate_fade_source(fixture.fade_source)
 
-        if fixture.address in addresses:
+        if any(address in addresses for address in fixture.occupied_addresses):
             raise FixtureValidationError("duplicate_address")
         normalized_name = fixture.name.strip().casefold()
         if normalized_name in names:
@@ -210,6 +228,6 @@ def validate_fixtures(fixtures: Collection[FixtureConfig]) -> None:
         if fixture.fixture_id in fixture_ids:
             raise FixtureValidationError("invalid_fixture")
 
-        addresses.add(fixture.address)
+        addresses.update(fixture.occupied_addresses)
         fixture_ids.add(fixture.fixture_id)
         names.add(normalized_name)

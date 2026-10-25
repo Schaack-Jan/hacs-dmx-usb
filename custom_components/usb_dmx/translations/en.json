@@ -66,9 +66,9 @@
         "unknown_subentry": "This DMX fixture no longer exists."
       },
       "error": {
-        "invalid_address": "The DMX address must be from 1 to 512.",
+        "invalid_address": "Start address and complete fixture footprint must fit within DMX channels 1–512.",
         "invalid_range": "Minimum and maximum must be from 0 to 255, and minimum must not exceed maximum.",
-        "duplicate_address": "This DMX address is already assigned to another fixture.",
+        "duplicate_address": "At least one DMX channel is already occupied by another fixture.",
         "duplicate_name": "This fixture name is already in use.",
         "invalid_fixture": "Enter a valid fixture configuration.",
         "invalid_fade_time": "Fade time must be a finite number from 0 to 2 seconds.",
@@ -77,7 +77,7 @@
       "step": {
         "user": {
           "title": "Add a DMX fixture",
-          "description": "Create one single-channel dimmer or raw DMX entity.",
+          "description": "Create a dimmer, raw channel, RGB, or RGBW fixture.",
           "data": {
             "type": "Fixture type",
             "name": "Name",
@@ -86,11 +86,11 @@
             "maximum": "Maximum output"
           },
           "data_description": {
-            "type": "Dimmers scale Home Assistant brightness; raw channels expose values from 0 to 255.",
+            "type": "Dimmer and raw use one channel; RGB uses R/G/B and RGBW uses R/G/B/W consecutive channels.",
             "name": "Name shown in Home Assistant.",
-            "address": "One-based DMX channel from 1 to 512.",
-            "minimum": "Lower output used for dimmer brightness scaling.",
-            "maximum": "Upper output used for dimmer brightness scaling."
+            "address": "First one-based DMX channel; the entire fixture must fit without overlapping others.",
+            "minimum": "Lower output bound for dimmers (not used for RGB, RGBW, or raw).",
+            "maximum": "Upper output bound for dimmers (not used for RGB, RGBW, or raw)."
           }
         },
         "reconfigure": {
@@ -104,11 +104,11 @@
             "maximum": "Maximum output"
           },
           "data_description": {
-            "type": "Dimmers scale Home Assistant brightness; raw channels expose values from 0 to 255.",
+            "type": "Dimmer and raw use one channel; RGB uses R/G/B and RGBW uses R/G/B/W consecutive channels.",
             "name": "Name shown in Home Assistant.",
-            "address": "One-based DMX channel from 1 to 512.",
-            "minimum": "Lower output used for dimmer brightness scaling.",
-            "maximum": "Upper output used for dimmer brightness scaling."
+            "address": "First one-based DMX channel; the entire fixture must fit without overlapping others.",
+            "minimum": "Lower output bound for dimmers (not used for RGB, RGBW, or raw).",
+            "maximum": "Upper output bound for dimmers (not used for RGB, RGBW, or raw)."
           }
         }
       }
@@ -147,7 +147,9 @@
     "fixture_type": {
       "options": {
         "dimmer": "Dimmer light",
-        "raw": "Raw channel"
+        "raw": "Raw channel",
+        "rgb": "RGB light (3 channels)",
+        "rgbw": "RGBW light (4 channels)"
       }
     },
     "startup_behavior": {

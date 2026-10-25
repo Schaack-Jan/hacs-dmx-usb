@@ -618,7 +618,7 @@ class _FixtureNameSelector(TextSelector):
 
 
 class FixtureSubentryFlow(ConfigSubentryFlow):
-    """Create and reconfigure one fixture config subentry."""
+    """Create and reconfigure one single- or multi-channel fixture."""
 
     def _schema(self, suggested_values: Mapping[str, Any] | None) -> vol.Schema:
         """Build the fixture form with current Home Assistant selectors."""

@@ -100,6 +100,8 @@ def _get_path(data: dict[str, Any], path: str) -> object:
         "selector.device.options.manual_path",
         "selector.fixture_type.options.dimmer",
         "selector.fixture_type.options.raw",
+        "selector.fixture_type.options.rgb",
+        "selector.fixture_type.options.rgbw",
         "selector.startup_behavior.options.restore",
         "selector.startup_behavior.options.zero",
         "device.interface.name",

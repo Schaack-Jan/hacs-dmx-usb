@@ -6,7 +6,7 @@ import asyncio
 import contextlib
 import logging
 import math
-from collections.abc import Callable, Coroutine, Sequence
+from collections.abc import Callable, Coroutine, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any, Final
 
@@ -108,6 +108,26 @@ class DmxController:
         async with self._transition_lifecycle_lock:
             await self._cancel_transition(address)
             await self._async_set_channel_value(address, value)
+
+    async def async_set_channels(self, values: Mapping[int, int]) -> None:
+        """Set multiple DMX channels atomically and send exactly one frame."""
+        if not values:
+            return
+        for address, value in values.items():
+            self._validate_channel(address, value)
+
+        async with self._transition_lifecycle_lock:
+            if self._stopping:
+                return
+            for address in values:
+                await self._cancel_transition(address)
+            async with self._lock:
+                for address, value in values.items():
+                    self._frame[address - 1] = value
+                if self._available:
+                    await self._async_send_locked()
+                else:
+                    self._schedule_reconnect()
 
     async def async_transition_channel(
         self,

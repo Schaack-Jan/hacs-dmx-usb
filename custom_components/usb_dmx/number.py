@@ -43,6 +43,8 @@ async def async_setup_entry(
             [UsbDmxLevel(fixture, entry), UsbDmxFadeTime(fixture, entry)]
             if fixture.fixture_type is FixtureType.DIMMER
             else [UsbDmxRawChannel(fixture, entry)]
+            if fixture.fixture_type is FixtureType.RAW
+            else []
         )
         for entity in entities:
             entity.device_entry = device

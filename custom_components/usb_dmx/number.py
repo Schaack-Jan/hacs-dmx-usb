@@ -48,8 +48,7 @@ async def async_setup_entry(
         if fixture.fixture_type not in (FixtureType.DIMMER, FixtureType.RAW):
             color = entry.runtime_data.get_color(fixture)
             entities.extend(
-                UsbDmxColorChannel(fixture, entry, role)
-                for role in color.extra_roles()
+                UsbDmxColorChannel(fixture, entry, role) for role in color.extra_roles()
             )
         for entity in entities:
             entity.device_entry = device
@@ -229,6 +228,7 @@ class UsbDmxGlobalFadeTime(NumberEntity):
         """Persist current global settings without DMX or reload."""
         if not self._removing:
             await self.settings.async_set_global_fade_time(value)
+
 
 class UsbDmxColorChannel(UsbDmxEntity, NumberEntity):
     """Expose the physical W, Amber, UV or Strobe value as a native slider."""

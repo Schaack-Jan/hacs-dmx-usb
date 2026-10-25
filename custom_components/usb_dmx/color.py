@@ -34,7 +34,8 @@ class ColorRuntime:
         self._lock = asyncio.Lock()
         self._listeners: list[Callable[[], None]] = []
         self._is_rgbw = fixture.fixture_type in (
-            FixtureType.RGBW, FixtureType.DIMMER_RGBW_STROBE
+            FixtureType.RGBW,
+            FixtureType.DIMMER_RGBW_STROBE,
         ) or (
             fixture.fixture_type is FixtureType.LED_BAR
             and fixture.pixel_mode is PixelMode.RGBW
@@ -77,9 +78,11 @@ class ColorRuntime:
             case FixtureType.RGBWAUV:
                 return ("white", "amber", "uv")
             case FixtureType.RGBW | FixtureType.DIMMER_RGBW_STROBE:
-                return ("white", "strobe") if (
-                    self.fixture.fixture_type is FixtureType.DIMMER_RGBW_STROBE
-                ) else ("white",)
+                return (
+                    ("white", "strobe")
+                    if (self.fixture.fixture_type is FixtureType.DIMMER_RGBW_STROBE)
+                    else ("white",)
+                )
             case _:
                 return ()
 
@@ -159,8 +162,7 @@ class ColorRuntime:
             ]
             if kind is FixtureType.RGBWAUV:
                 channels.extend(
-                    round(self._extras[role] * self._brightness / 255)
-                    if enabled else 0
+                    round(self._extras[role] * self._brightness / 255) if enabled else 0
                     for role in ("white", "amber", "uv")
                 )
         return dict(zip(fixture.occupied_addresses, channels, strict=True))
@@ -180,7 +182,8 @@ class ColorRuntime:
         new_color = previous_color if color is None else self._validate_color(color)
         new_brightness = (
             previous_brightness
-            if brightness is None else self._validate_byte(brightness)
+            if brightness is None
+            else self._validate_byte(brightness)
         )
         async with self._lock:
             if pixel is None:
@@ -193,9 +196,7 @@ class ColorRuntime:
                         for _ in self._pixels
                     ]
             else:
-                self._pixels[pixel] = (
-                    new_color, new_brightness, new_brightness > 0
-                )
+                self._pixels[pixel] = (new_color, new_brightness, new_brightness > 0)
             self._palette = "custom"
             await self.controller.async_set_channels(self._render())
             self._publish()

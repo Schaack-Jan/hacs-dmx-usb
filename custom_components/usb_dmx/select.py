@@ -82,6 +82,7 @@ class UsbDmxFadeSource(UsbDmxDimmerEntity, SelectEntity):
         if not self._removing:
             await self.dimmer.async_set_fade_source(option)
 
+
 class UsbDmxColorPalette(UsbDmxEntity, SelectEntity):
     """Provide reusable colors without replacing free color-wheel mixing."""
 

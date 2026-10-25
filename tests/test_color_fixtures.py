@@ -45,8 +45,12 @@ def _fixture(fixture_type: FixtureType, address: int = 1) -> FixtureConfig:
 
 @pytest.mark.parametrize(
     ("fixture_type", "start", "count"),
-    [(FixtureType.DIMMER, 512, 1), (FixtureType.RAW, 512, 1),
-     (FixtureType.RGB, 510, 3), (FixtureType.RGBW, 509, 4)],
+    [
+        (FixtureType.DIMMER, 512, 1),
+        (FixtureType.RAW, 512, 1),
+        (FixtureType.RGB, 510, 3),
+        (FixtureType.RGBW, 509, 4),
+    ],
 )
 def test_footprints_fit_at_last_possible_address(
     fixture_type: FixtureType, start: int, count: int
@@ -73,19 +77,23 @@ def test_multi_channel_overlap_is_detected_on_every_occupied_address() -> None:
     """Overlapping a fixture's interior channel is not allowed."""
     for address in (10, 11, 12):
         with pytest.raises(FixtureValidationError, match="duplicate_address"):
-            validate_fixtures([
-                _fixture(FixtureType.RGB, 10),
-                _fixture(FixtureType.DIMMER, address),
-            ])
-    validate_fixtures([
-        _fixture(FixtureType.RGB, 10),
-        _fixture(FixtureType.RGBW, 13),
-    ])
+            validate_fixtures(
+                [
+                    _fixture(FixtureType.RGB, 10),
+                    _fixture(FixtureType.DIMMER, address),
+                ]
+            )
+    validate_fixtures(
+        [
+            _fixture(FixtureType.RGB, 10),
+            _fixture(FixtureType.RGBW, 13),
+        ]
+    )
 
 
 @pytest.mark.parametrize("fixture_type", [FixtureType.RGB, FixtureType.RGBW])
 def test_color_fixtures_keep_backwards_compatible_storage(
-    fixture_type: FixtureType
+    fixture_type: FixtureType,
 ) -> None:
     """Persist color modes without introducing new required keys."""
     fixture = _fixture(fixture_type, 20)
@@ -141,11 +149,11 @@ async def test_color_light_writes_atomic_brightness_scaled_channels(
     await entity.async_turn_on(**{key: color, "brightness": 128})
     assert entity.is_on
     assert len(backend.frames) == 1
-    assert backend.frames[-1][19:19 + fixture.channel_count] == bytes(expected)
+    assert backend.frames[-1][19 : 19 + fixture.channel_count] == bytes(expected)
     await entity.async_turn_off()
     assert not entity.is_on
     assert len(backend.frames) == 2
-    assert backend.frames[-1][19:19 + fixture.channel_count] == bytes(
+    assert backend.frames[-1][19 : 19 + fixture.channel_count] == bytes(
         fixture.channel_count
     )
     await controller.async_stop()
@@ -157,9 +165,13 @@ async def test_color_light_rejects_invalid_color_without_writing(
 ) -> None:
     """An invalid component or wrong mode cannot partially write DMX."""
     fixture = _fixture(FixtureType.RGB, 1)
-    entry = make_usb_dmx_entry(make_fixture_subentry(
-        fixture_id=fixture.fixture_id, fixture_type="rgb", name=fixture.name,
-    ))
+    entry = make_usb_dmx_entry(
+        make_fixture_subentry(
+            fixture_id=fixture.fixture_id,
+            fixture_type="rgb",
+            name=fixture.name,
+        )
+    )
     backend = FakeBackend()
     controller = DmxController(backend)
     await controller.async_start()
@@ -179,9 +191,7 @@ async def test_light_platform_creates_color_fixture_under_its_subentry(
     make_usb_dmx_entry: Callable[..., MockConfigEntry],
 ) -> None:
     """One RGBW subentry becomes exactly one HA color light."""
-    fixture = make_fixture_subentry(
-        fixture_type="rgbw", name="Color bar", address=10
-    )
+    fixture = make_fixture_subentry(fixture_type="rgbw", name="Color bar", address=10)
     entry = make_usb_dmx_entry(fixture)
     entry.add_to_hass(hass)
     backend = FakeBackend()

@@ -20,13 +20,21 @@ from .fakes import FakeBackend
 
 
 def fixture(
-    mode: FixtureType, address: int = 1, *, pixels: int = 1,
-    pixel_mode: PixelMode = PixelMode.RGB
+    mode: FixtureType,
+    address: int = 1,
+    *,
+    pixels: int = 1,
+    pixel_mode: PixelMode = PixelMode.RGB,
 ) -> FixtureConfig:
     """Construct a distinct fixture for each tested channel personality."""
     return FixtureConfig(
-        fixture_id=str(uuid4()), fixture_type=mode, name=f"{mode.value}:{address}",
-        address=address, minimum=0, maximum=255, pixel_count=pixels,
+        fixture_id=str(uuid4()),
+        fixture_type=mode,
+        name=f"{mode.value}:{address}",
+        address=address,
+        minimum=0,
+        maximum=255,
+        pixel_count=pixels,
         pixel_mode=pixel_mode,
     )
 
@@ -65,9 +73,9 @@ def test_led_bar_footprints_validate_channels(
     with pytest.raises(FixtureValidationError, match="duplicate_address"):
         validate_fixtures([bar, fixture(FixtureType.RAW, 506)])
     with pytest.raises(FixtureValidationError, match="invalid_address"):
-        validate_fixtures([
-            fixture(FixtureType.LED_BAR, 502, pixels=count, pixel_mode=mode)
-        ])
+        validate_fixtures(
+            [fixture(FixtureType.LED_BAR, 502, pixels=count, pixel_mode=mode)]
+        )
 
 
 def test_led_bar_stored_settings_round_trip() -> None:

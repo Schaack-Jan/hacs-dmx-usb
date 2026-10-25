@@ -42,7 +42,7 @@ async def async_setup_entry(
     lights = [
         (subentry, fixture)
         for subentry, fixture in fixtures
-        if fixture.fixture_type not in (FixtureType.RAW,)
+        if fixture.fixture_type is not FixtureType.RAW
     ]
     if not lights:
         return

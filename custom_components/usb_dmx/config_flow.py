@@ -45,9 +45,9 @@ from .const import (
     CONF_FIXTURE_MINIMUM,
     CONF_FIXTURE_NAME,
     CONF_FIXTURE_TYPE,
+    CONF_INTERFACE_ID,
     CONF_PIXEL_COUNT,
     CONF_PIXEL_MODE,
-    CONF_INTERFACE_ID,
     CONF_STARTUP_BEHAVIOR,
     DEFAULT_BLACKOUT_ON_SHUTDOWN,
     DEFAULT_STARTUP_BEHAVIOR,
@@ -664,7 +664,10 @@ class FixtureSubentryFlow(ConfigSubentryFlow):
                 ),
                 vol.Optional(CONF_PIXEL_COUNT): _FixtureNumberSelector(
                     NumberSelectorConfig(
-                        min=1, max=LED_BAR_MAX_PIXELS, step=1, mode=NumberSelectorMode.BOX
+                        min=1,
+                        max=LED_BAR_MAX_PIXELS,
+                        step=1,
+                        mode=NumberSelectorMode.BOX,
                     )
                 ),
                 vol.Optional(CONF_PIXEL_MODE): _FixtureTypeSelector(

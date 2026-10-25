@@ -241,7 +241,7 @@ def validate_fixtures(fixtures: Collection[FixtureConfig]) -> None:
 
         if (
             type(fixture.address) is not int
-            or not 1 <= fixture.address
+            or fixture.address < 1
             or fixture.address + fixture.channel_count - 1 > DMX_CHANNEL_COUNT
         ):
             raise FixtureValidationError("invalid_address")

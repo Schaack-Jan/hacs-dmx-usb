@@ -46,7 +46,11 @@ class ColorRuntime:
         self._palette = "custom"
         self._pixels: list[tuple[tuple[int, ...], int, bool]] = [
             (self._color, 255, False)
-            for _ in range(fixture.pixel_count if fixture.fixture_type is FixtureType.LED_BAR else 0)
+            for _ in range(
+                fixture.pixel_count
+                if fixture.fixture_type is FixtureType.LED_BAR
+                else 0
+            )
         ]
 
     @property
@@ -79,10 +83,11 @@ class ColorRuntime:
             case _:
                 return ()
 
-    def extra(self, name: str) -> int:
+    def extra_value(self, name: str) -> int:
         """Read a physical-channel slider in the active configuration."""
         if name not in self.extra_roles():
-            raise ValueError("Channel is not present in this fixture")
+            msg = "Channel is not present in this fixture"
+            raise ValueError(msg)
         if name == "white" and self._is_rgbw:
             return self._color[3]
         return self._extras[name]
@@ -106,18 +111,24 @@ class ColorRuntime:
         if pixel is not None:
             return self._pixels[pixel]
         if self._pixels:
-            return (self._color, self._brightness, any(state[2] for state in self._pixels))
+            return (
+                self._color,
+                self._brightness,
+                any(state[2] for state in self._pixels),
+            )
         return self._color, self._brightness, self._is_on
 
     @staticmethod
     def _validate_byte(value: object) -> int:
         if type(value) is not int or not 0 <= value <= DMX_MAX_VALUE:
-            raise ValueError("DMX channel value must be an integer from 0 to 255")
+            msg = "DMX channel value must be an integer from 0 to 255"
+            raise ValueError(msg)
         return value
 
     def _validate_color(self, value: object) -> tuple[int, ...]:
         if not isinstance(value, (list, tuple)) or len(value) != len(self._color):
-            raise ValueError("Color channels do not match the fixture's mode")
+            msg = "Color channels do not match the fixture's mode"
+            raise ValueError(msg)
         return tuple(self._validate_byte(component) for component in value)
 
     def _render(self) -> dict[int, int]:
@@ -163,7 +174,8 @@ class ColorRuntime:
     ) -> None:
         """Apply a picker change, optionally to one independent bar pixel."""
         if pixel is not None and not 0 <= pixel < len(self._pixels):
-            raise ValueError("Invalid LED bar pixel")
+            msg = "Invalid LED bar pixel"
+            raise ValueError(msg)
         previous_color, previous_brightness, _ = self.get_state(pixel)
         new_color = previous_color if color is None else self._validate_color(color)
         new_brightness = (
@@ -191,11 +203,14 @@ class ColorRuntime:
     async def turn_off(self, *, pixel: int | None = None) -> None:
         """Black out only the selected pixels, preserving chosen colors."""
         if pixel is not None and not 0 <= pixel < len(self._pixels):
-            raise ValueError("Invalid LED bar pixel")
+            msg = "Invalid LED bar pixel"
+            raise ValueError(msg)
         async with self._lock:
             if pixel is None:
                 self._is_on = False
-                self._pixels = [(color, level, False) for color, level, _ in self._pixels]
+                self._pixels = [
+                    (color, level, False) for color, level, _ in self._pixels
+                ]
             else:
                 color, level, _ = self._pixels[pixel]
                 self._pixels[pixel] = (color, level, False)
@@ -206,7 +221,8 @@ class ColorRuntime:
         """Set one W/A/UV/Strobe slider and recalculate the fixture atomically."""
         value = self._validate_byte(value)
         if name not in self.extra_roles():
-            raise ValueError("Channel is not present in this fixture")
+            msg = "Channel is not present in this fixture"
+            raise ValueError(msg)
         async with self._lock:
             if name == "white" and self._is_rgbw:
                 self._color = (*self._color[:3], value)
@@ -219,7 +235,8 @@ class ColorRuntime:
     async def apply_palette(self, option: str) -> None:
         """Use a reproducible preset while retaining separate W/A/UV mixing."""
         if option not in self.palette_options:
-            raise ValueError("Unknown fixture palette preset")
+            msg = "Unknown fixture palette preset"
+            raise ValueError(msg)
         if option == "custom":
             return
         async with self._lock:
@@ -235,7 +252,9 @@ class ColorRuntime:
             self._is_on = True
             self._brightness = max(1, self._brightness)
             if self._pixels:
-                self._pixels = [(self._color, self._brightness, True) for _ in self._pixels]
+                self._pixels = [
+                    (self._color, self._brightness, True) for _ in self._pixels
+                ]
             self._palette = option
             await self.controller.async_set_channels(self._render())
             self._publish()
@@ -248,9 +267,8 @@ class ColorRuntime:
         new_brightness = self._validate_byte(brightness)
         new_extras = {}
         for role in self.extra_roles():
-            if role != "strobe":
-                if role in extras:
-                    new_extras[role] = self._validate_byte(extras[role])
+            if role != "strobe" and role in extras:
+                new_extras[role] = self._validate_byte(extras[role])
         async with self._lock:
             self._color = new_color
             self._brightness = new_brightness

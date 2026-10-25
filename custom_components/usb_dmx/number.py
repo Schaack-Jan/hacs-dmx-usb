@@ -39,13 +39,12 @@ async def async_setup_entry(
     global_fade.device_entry = device
     async_add_entities([global_fade], config_subentry_id=None)
     for subentry, fixture in fixtures:
-        entities = (
-            [UsbDmxLevel(fixture, entry), UsbDmxFadeTime(fixture, entry)]
-            if fixture.fixture_type is FixtureType.DIMMER
-            else [UsbDmxRawChannel(fixture, entry)]
-            if fixture.fixture_type is FixtureType.RAW
-            else []
-        )
+        if fixture.fixture_type is FixtureType.DIMMER:
+            entities = [UsbDmxLevel(fixture, entry), UsbDmxFadeTime(fixture, entry)]
+        elif fixture.fixture_type is FixtureType.RAW:
+            entities = [UsbDmxRawChannel(fixture, entry)]
+        else:
+            entities = []
         if fixture.fixture_type not in (FixtureType.DIMMER, FixtureType.RAW):
             color = entry.runtime_data.get_color(fixture)
             entities.extend(
@@ -247,7 +246,8 @@ class UsbDmxColorChannel(UsbDmxEntity, NumberEntity):
         super().__init__(fixture, entry)
         self.color = entry.runtime_data.get_color(fixture)
         if role not in self.color.extra_roles():
-            raise ValueError("Unsupported color channel")
+            msg = "Unsupported color channel"
+            raise ValueError(msg)
         self.role = role
         self._attr_unique_id += f"_{role}"
         self._attr_translation_key = f"{role}_channel"
@@ -258,7 +258,7 @@ class UsbDmxColorChannel(UsbDmxEntity, NumberEntity):
     @override
     def native_value(self) -> int:
         """Read the current raw channel value from the shared color mixer."""
-        return self.color.extra(self.role)
+        return self.color.extra_value(self.role)
 
     @override
     async def async_added_to_hass(self) -> None:
@@ -272,7 +272,9 @@ class UsbDmxColorChannel(UsbDmxEntity, NumberEntity):
         if self._removing:
             return
         if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise ValueError("Channel value must be an integer from 0 to 255")
+            msg = "Channel value must be an integer from 0 to 255"
+            raise ValueError(msg)
         if not math.isfinite(value) or not float(value).is_integer():
-            raise ValueError("Channel value must be an integer from 0 to 255")
+            msg = "Channel value must be an integer from 0 to 255"
+            raise ValueError(msg)
         await self.color.set_extra(self.role, int(value))

@@ -54,13 +54,14 @@ from .const import (
     DMX_CHANNEL_COUNT,
     DMX_MAX_VALUE,
     DOMAIN,
+    LED_BAR_MAX_PIXELS,
     SUBENTRY_TYPE_FIXTURE,
 )
 from .models import (
     FixtureConfig,
     FixtureType,
-    PixelMode,
     FixtureValidationError,
+    PixelMode,
     StartupBehavior,
     validate_fixtures,
 )
@@ -663,7 +664,7 @@ class FixtureSubentryFlow(ConfigSubentryFlow):
                 ),
                 vol.Optional(CONF_PIXEL_COUNT): _FixtureNumberSelector(
                     NumberSelectorConfig(
-                        min=1, max=170, step=1, mode=NumberSelectorMode.BOX
+                        min=1, max=LED_BAR_MAX_PIXELS, step=1, mode=NumberSelectorMode.BOX
                     )
                 ),
                 vol.Optional(CONF_PIXEL_MODE): _FixtureTypeSelector(

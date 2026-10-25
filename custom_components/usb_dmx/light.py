@@ -13,12 +13,10 @@ from homeassistant.components.light import (
     LightEntity,
     LightEntityFeature,
 )
-
 from homeassistant.const import STATE_ON
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from . import UsbDmxConfigEntry
-from .const import DMX_MAX_VALUE
 from .entity import (
     UsbDmxEntity,
     fixtures_from_entry,
@@ -179,7 +177,7 @@ class UsbDmxColorLight(UsbDmxEntity, LightEntity, RestoreEntity):
         """Publish separately adjustable W/A/UV/Strobe settings on the group."""
         if self.pixel is not None:
             return None
-        return {role: self.color.extra(role) for role in self.color.extra_roles()}
+        return {role: self.color.extra_value(role) for role in self.color.extra_roles()}
 
     @override
     async def async_added_to_hass(self) -> None:
@@ -219,9 +217,11 @@ class UsbDmxColorLight(UsbDmxEntity, LightEntity, RestoreEntity):
         key = ATTR_RGBW_COLOR if self.color.is_rgbw else ATTR_RGB_COLOR
         other_key = ATTR_RGB_COLOR if self.color.is_rgbw else ATTR_RGBW_COLOR
         if other_key in kwargs:
-            raise ValueError("Color payload does not match the fixture mode")
+            msg = "Color payload does not match the fixture mode"
+            raise ValueError(msg)
         if ATTR_TRANSITION in kwargs and kwargs[ATTR_TRANSITION] != 0:
-            raise ValueError("Color transitions are not yet supported")
+            msg = "Color transitions are not yet supported"
+            raise ValueError(msg)
         await self.color.set_color(
             color=kwargs.get(key),
             brightness=kwargs.get(ATTR_BRIGHTNESS),
@@ -234,5 +234,6 @@ class UsbDmxColorLight(UsbDmxEntity, LightEntity, RestoreEntity):
         if self._removing:
             return
         if ATTR_TRANSITION in kwargs and kwargs[ATTR_TRANSITION] != 0:
-            raise ValueError("Color transitions are not yet supported")
+            msg = "Color transitions are not yet supported"
+            raise ValueError(msg)
         await self.color.turn_off(pixel=self.pixel)

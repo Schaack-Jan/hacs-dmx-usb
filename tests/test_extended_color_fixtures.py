@@ -65,7 +65,9 @@ def test_led_bar_footprints_validate_channels(
     with pytest.raises(FixtureValidationError, match="duplicate_address"):
         validate_fixtures([bar, fixture(FixtureType.RAW, 506)])
     with pytest.raises(FixtureValidationError, match="invalid_address"):
-        validate_fixtures([fixture(FixtureType.LED_BAR, 502, pixels=count, pixel_mode=mode)])
+        validate_fixtures([
+            fixture(FixtureType.LED_BAR, 502, pixels=count, pixel_mode=mode)
+        ])
 
 
 def test_led_bar_stored_settings_round_trip() -> None:

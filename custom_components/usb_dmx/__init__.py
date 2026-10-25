@@ -20,6 +20,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from .backends.base import BackendError, DmxBackend
 from .backends.serial_pro import SerialProBackend
+from .color import ColorRuntime
 from .const import (
     BACKEND_SERIAL_PRO,
     CONF_BACKEND,
@@ -30,7 +31,6 @@ from .const import (
     DEFAULT_STARTUP_BEHAVIOR,
     DOMAIN,
 )
-from .color import ColorRuntime
 from .controller import DmxController
 from .dimmer import DimmerRuntime
 from .models import FixtureConfig, FixtureType, StartupBehavior

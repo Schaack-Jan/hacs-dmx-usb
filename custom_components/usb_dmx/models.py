@@ -22,6 +22,7 @@ from .const import (
     DMX_CHANNEL_COUNT,
     DMX_MAX_VALUE,
     FADE_TIME_MAX,
+    LED_BAR_MAX_PIXELS,
 )
 
 _UUID_VERSION = 4
@@ -131,7 +132,7 @@ class FixtureConfig:
         """Create and validate a fixture from its JSON-safe representation."""
         pixel_count = data.get(CONF_PIXEL_COUNT, 1)
         pixel_mode = data.get(CONF_PIXEL_MODE, PixelMode.RGB)
-        if type(pixel_count) is not int or not 1 <= pixel_count <= 170:
+        if type(pixel_count) is not int or not 1 <= pixel_count <= LED_BAR_MAX_PIXELS:
             raise FixtureValidationError("invalid_pixel_count")
         try:
             if not isinstance(pixel_mode, str):
@@ -254,7 +255,7 @@ def validate_fixtures(fixtures: Collection[FixtureConfig]) -> None:
 
         if (
             type(fixture.pixel_count) is not int
-            or not 1 <= fixture.pixel_count <= 170
+            or not 1 <= fixture.pixel_count <= LED_BAR_MAX_PIXELS
         ):
             raise FixtureValidationError("invalid_pixel_count")
         if not isinstance(fixture.pixel_mode, PixelMode):

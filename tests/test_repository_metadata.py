@@ -87,17 +87,28 @@ def test_brand_assets_are_local_to_the_custom_integration() -> None:
         assert icon.size == (256, 256)
 
 
+def _assert_review_ready_or_published_release_only(workflow: dict[str, Any]) -> None:
+    """Reject CI triggers for pushes, drafts, schedules, and manual runs."""
+    assert workflow["on"] == {
+        "pull_request": {"types": ["opened", "ready_for_review"]},
+        "release": {"types": ["published"]},
+    }
+    for job in workflow["jobs"].values():
+        assert job["if"] == (
+            "github.event_name == 'release' || github.event.pull_request.draft == false"
+        )
+
+
 def test_test_workflow_is_frozen_and_read_only() -> None:
     """The test workflow must exercise the lockfile with the supported Python."""
     workflow = _load_workflow("tests.yml")
-    events = workflow["on"]
     commands = "\n".join(
         step.get("run", "")
         for job in workflow["jobs"].values()
         for step in job["steps"]
     )
 
-    assert set(events) == {"push", "pull_request", "workflow_dispatch"}
+    _assert_review_ready_or_published_release_only(workflow)
     assert workflow["permissions"] == {"contents": "read"}
     assert _uses(workflow) == [_CHECKOUT_REF, _SETUP_UV_REF]
     setup_uv_step = next(
@@ -113,20 +124,14 @@ def test_test_workflow_is_frozen_and_read_only() -> None:
     assert "uv run ruff format --check ." in commands
 
 
-def test_validator_workflows_are_separate_and_run_daily() -> None:
-    """Hassfest and HACS must track their official validators without skips."""
+def test_validator_workflows_use_review_ready_and_release_triggers() -> None:
+    """Hassfest and HACS use only the intended one-shot triggers."""
     hassfest = _load_workflow("hassfest.yml")
     hacs = _load_workflow("hacs.yml")
 
     for workflow in (hassfest, hacs):
-        assert set(workflow["on"]) == {
-            "push",
-            "pull_request",
-            "schedule",
-            "workflow_dispatch",
-        }
+        _assert_review_ready_or_published_release_only(workflow)
         assert workflow["permissions"] == {"contents": "read"}
-        assert workflow["on"]["schedule"] == [{"cron": "0 0 * * *"}]
 
     assert _uses(hassfest) == [
         _CHECKOUT_REF,

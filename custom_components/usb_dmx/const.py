@@ -14,6 +14,9 @@ CONF_FIXTURE_MAXIMUM = "maximum"
 CONF_FIXTURE_MINIMUM = "minimum"
 CONF_FIXTURE_NAME = "name"
 CONF_FIXTURE_TYPE = "type"
+LED_BAR_MAX_PIXELS = 170
+CONF_PIXEL_COUNT = "pixel_count"
+CONF_PIXEL_MODE = "pixel_mode"
 CONF_INTERFACE_ID = "interface_id"
 CONF_STARTUP_BEHAVIOR = "startup_behavior"
 

@@ -39,11 +39,17 @@ async def async_setup_entry(
     global_fade.device_entry = device
     async_add_entities([global_fade], config_subentry_id=None)
     for subentry, fixture in fixtures:
-        entities = (
-            [UsbDmxLevel(fixture, entry), UsbDmxFadeTime(fixture, entry)]
-            if fixture.fixture_type is FixtureType.DIMMER
-            else [UsbDmxRawChannel(fixture, entry)]
-        )
+        if fixture.fixture_type is FixtureType.DIMMER:
+            entities = [UsbDmxLevel(fixture, entry), UsbDmxFadeTime(fixture, entry)]
+        elif fixture.fixture_type is FixtureType.RAW:
+            entities = [UsbDmxRawChannel(fixture, entry)]
+        else:
+            entities = []
+        if fixture.fixture_type not in (FixtureType.DIMMER, FixtureType.RAW):
+            color = entry.runtime_data.get_color(fixture)
+            entities.extend(
+                UsbDmxColorChannel(fixture, entry, role) for role in color.extra_roles()
+            )
         for entity in entities:
             entity.device_entry = device
             async_add_entities([entity], config_subentry_id=subentry.subentry_id)
@@ -222,3 +228,53 @@ class UsbDmxGlobalFadeTime(NumberEntity):
         """Persist current global settings without DMX or reload."""
         if not self._removing:
             await self.settings.async_set_global_fade_time(value)
+
+
+class UsbDmxColorChannel(UsbDmxEntity, NumberEntity):
+    """Expose the physical W, Amber, UV or Strobe value as a native slider."""
+
+    _attr_mode = NumberMode.SLIDER
+    _attr_native_min_value = 0
+    _attr_native_max_value = DMX_MAX_VALUE
+    _attr_native_step = 1
+    _attr_has_entity_name = True
+
+    def __init__(
+        self, fixture: FixtureConfig, entry: UsbDmxConfigEntry, role: str
+    ) -> None:
+        """Use one stable number entity per independent physical channel."""
+        super().__init__(fixture, entry)
+        self.color = entry.runtime_data.get_color(fixture)
+        if role not in self.color.extra_roles():
+            msg = "Unsupported color channel"
+            raise ValueError(msg)
+        self.role = role
+        self._attr_unique_id += f"_{role}"
+        self._attr_translation_key = f"{role}_channel"
+        self._attr_translation_placeholders = {"fixture_name": fixture.name}
+        del self._attr_name
+
+    @property
+    @override
+    def native_value(self) -> int:
+        """Read the current raw channel value from the shared color mixer."""
+        return self.color.extra_value(self.role)
+
+    @override
+    async def async_added_to_hass(self) -> None:
+        """Publish slider changes initiated by either a palette or color picker."""
+        await super().async_added_to_hass()
+        self.async_on_remove(self.color.add_listener(self._async_write_state_if_added))
+
+    @override
+    async def async_set_native_value(self, value: float) -> None:
+        """Apply 8-bit input, rejecting floats that are not whole bytes."""
+        if self._removing:
+            return
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            msg = "Channel value must be an integer from 0 to 255"
+            raise TypeError(msg)
+        if not math.isfinite(value) or not float(value).is_integer():
+            msg = "Channel value must be an integer from 0 to 255"
+            raise ValueError(msg)
+        await self.color.set_extra(self.role, int(value))

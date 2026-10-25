@@ -66,49 +66,59 @@
         "unknown_subentry": "Dieses DMX-Gerät existiert nicht mehr."
       },
       "error": {
-        "invalid_address": "Die DMX-Adresse muss zwischen 1 und 512 liegen.",
+        "invalid_address": "Die Startadresse und sämtliche Kanäle des Geräts müssen im DMX-Bereich 1–512 liegen.",
         "invalid_range": "Minimum und Maximum müssen zwischen 0 und 255 liegen; das Minimum darf das Maximum nicht überschreiten.",
-        "duplicate_address": "Diese DMX-Adresse ist bereits einem anderen Gerät zugeordnet.",
+        "duplicate_address": "Mindestens ein DMX-Kanal ist bereits durch ein anderes Gerät belegt.",
         "duplicate_name": "Dieser Gerätename wird bereits verwendet.",
         "invalid_fixture": "Eine gültige Gerätekonfiguration eingeben.",
         "invalid_fade_time": "Die Fadezeit muss eine endliche Zahl zwischen 0 und 2 Sekunden sein.",
-        "invalid_fade_source": "Die Fadequelle muss global oder individual sein."
+        "invalid_fade_source": "Die Fadequelle muss global oder individual sein.",
+        "invalid_pixel_count": "Die Pixelanzahl muss zwischen 1 und 170 liegen und in ein DMX-Universum mit 512 Kanälen passen.",
+        "invalid_pixel_mode": "RGB- oder RGBW-Pixel auswählen."
       },
       "step": {
         "user": {
           "title": "DMX-Gerät hinzufügen",
-          "description": "Eine einkanalige Dimmer- oder DMX-Rohwert-Entität erstellen.",
+          "description": "Ein Farbgerät mit fester Kanalbelegung oder eine einzeln ansteuerbare RGB-/RGBW-Pixelbar konfigurieren.",
           "data": {
             "type": "Gerätetyp",
             "name": "Name",
             "address": "DMX-Adresse",
             "minimum": "Minimaler Ausgangswert",
-            "maximum": "Maximaler Ausgangswert"
+            "maximum": "Maximaler Ausgangswert",
+            "pixel_count": "LED-Bar: Pixelanzahl",
+            "pixel_mode": "LED-Bar: Pixelmodus"
           },
           "data_description": {
-            "type": "Dimmer skalieren die Home-Assistant-Helligkeit; Rohwertkanäle stellen Werte von 0 bis 255 bereit.",
+            "type": "Exakt passenden DMX-Modus mit der Kanalreihenfolge aus dem Gerätehandbuch wählen.",
             "name": "In Home Assistant angezeigter Name.",
-            "address": "DMX-Kanal von 1 bis 512.",
-            "minimum": "Unterer Ausgangswert für die Helligkeitsskalierung des Dimmers.",
-            "maximum": "Oberer Ausgangswert für die Helligkeitsskalierung des Dimmers."
+            "address": "Erste DMX-Adresse; alle Kanäle müssen ohne Überschneidung in das Universum passen.",
+            "minimum": "Untere Ausgangsgrenze nur für Dimmer (nicht für RGB, RGBW oder Rohkanal).",
+            "maximum": "Obere Ausgangsgrenze nur für Dimmer (nicht für RGB, RGBW oder Rohkanal).",
+            "pixel_count": "Anzahl der einzeln steuerbaren RGB- oder RGBW-Pixel (nur bei LED-Bars).",
+            "pixel_mode": "Kanalreihenfolge pro Pixel; alle Pixel müssen in das DMX-Universum passen."
           }
         },
         "reconfigure": {
           "title": "DMX-Gerät neu konfigurieren",
-          "description": "Dieses Gerät ändern, ohne seine Entitätsidentität zu ändern.",
+          "description": "Ein Farbgerät mit fester Kanalbelegung oder eine einzeln ansteuerbare RGB-/RGBW-Pixelbar konfigurieren.",
           "data": {
             "type": "Gerätetyp",
             "name": "Name",
             "address": "DMX-Adresse",
             "minimum": "Minimaler Ausgangswert",
-            "maximum": "Maximaler Ausgangswert"
+            "maximum": "Maximaler Ausgangswert",
+            "pixel_count": "LED-Bar: Pixelanzahl",
+            "pixel_mode": "LED-Bar: Pixelmodus"
           },
           "data_description": {
-            "type": "Dimmer skalieren die Home-Assistant-Helligkeit; Rohwertkanäle stellen Werte von 0 bis 255 bereit.",
+            "type": "Exakt passenden DMX-Modus mit der Kanalreihenfolge aus dem Gerätehandbuch wählen.",
             "name": "In Home Assistant angezeigter Name.",
-            "address": "DMX-Kanal von 1 bis 512.",
-            "minimum": "Unterer Ausgangswert für die Helligkeitsskalierung des Dimmers.",
-            "maximum": "Oberer Ausgangswert für die Helligkeitsskalierung des Dimmers."
+            "address": "Erste DMX-Adresse; alle Kanäle müssen ohne Überschneidung in das Universum passen.",
+            "minimum": "Untere Ausgangsgrenze nur für Dimmer (nicht für RGB, RGBW oder Rohkanal).",
+            "maximum": "Obere Ausgangsgrenze nur für Dimmer (nicht für RGB, RGBW oder Rohkanal).",
+            "pixel_count": "Anzahl der einzeln steuerbaren RGB- oder RGBW-Pixel (nur bei LED-Bars).",
+            "pixel_mode": "Kanalreihenfolge pro Pixel; alle Pixel müssen in das DMX-Universum passen."
           }
         }
       }
@@ -147,13 +157,25 @@
     "fixture_type": {
       "options": {
         "dimmer": "Dimmer-Licht",
-        "raw": "Rohwertkanal"
+        "raw": "Rohwertkanal",
+        "rgb": "RGB-Licht (3 Kanäle)",
+        "rgbw": "RGBW-Licht (4 Kanäle)",
+        "rgbwauv": "RGBWAUV-Licht (6 Kanäle)",
+        "dimmer_rgb": "Dimmer + RGB (4 Kanäle)",
+        "dimmer_rgbw_strobe": "Dimmer + RGBW + Strobe (6 Kanäle)",
+        "led_bar": "Pixel-LED-Bar (variable Kanäle)"
       }
     },
     "startup_behavior": {
       "options": {
         "restore": "Gespeicherte Lichtzustände wiederherstellen",
         "zero": "Bei null starten"
+      }
+    },
+    "pixel_mode": {
+      "options": {
+        "rgb": "RGB (3 Kanäle pro Pixel)",
+        "rgbw": "RGBW (4 Kanäle pro Pixel)"
       }
     }
   },
@@ -172,6 +194,18 @@
       },
       "global_fade_time": {
         "name": "Globale Fadezeit"
+      },
+      "white_channel": {
+        "name": "{fixture_name} Weiß"
+      },
+      "amber_channel": {
+        "name": "{fixture_name} Amber"
+      },
+      "uv_channel": {
+        "name": "{fixture_name} UV"
+      },
+      "strobe_channel": {
+        "name": "{fixture_name} Stroboskop"
       }
     },
     "select": {
@@ -180,6 +214,25 @@
         "state": {
           "global": "Global",
           "individual": "Individuell"
+        }
+      },
+      "palette": {
+        "name": "{fixture_name} Farbpalette",
+        "state": {
+          "custom": "Individuell",
+          "red": "Rot",
+          "orange": "Orange",
+          "yellow": "Gelb",
+          "green": "Grün",
+          "cyan": "Cyan",
+          "blue": "Blau",
+          "purple": "Violett",
+          "magenta": "Magenta",
+          "pink": "Pink",
+          "warm_white": "Warmweiß",
+          "cool_white": "Kaltweiß",
+          "amber": "Amber",
+          "uv": "UV"
         }
       }
     }

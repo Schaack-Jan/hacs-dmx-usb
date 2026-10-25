@@ -20,6 +20,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from .backends.base import BackendError, DmxBackend
 from .backends.serial_pro import SerialProBackend
+from .color import ColorRuntime
 from .const import (
     BACKEND_SERIAL_PRO,
     CONF_BACKEND,
@@ -50,6 +51,7 @@ class UsbDmxRuntime:
     startup_behavior: StartupBehavior
     settings: FadeSettings | None = None
     dimmers: dict[str, DimmerRuntime] = field(default_factory=dict)
+    colors: dict[str, ColorRuntime] = field(default_factory=dict)
 
     def get_dimmer(self, fixture: FixtureConfig) -> DimmerRuntime:
         """Get the common fixture runtime, including manually constructed entries."""
@@ -58,6 +60,12 @@ class UsbDmxRuntime:
                 self.controller, fixture, self.settings
             )
         return self.dimmers[fixture.fixture_id]
+
+    def get_color(self, fixture: FixtureConfig) -> ColorRuntime:
+        """Share one color mixer between its light, palette and faders."""
+        if fixture.fixture_id not in self.colors:
+            self.colors[fixture.fixture_id] = ColorRuntime(self.controller, fixture)
+        return self.colors[fixture.fixture_id]
 
 
 type UsbDmxConfigEntry = ConfigEntry[UsbDmxRuntime]

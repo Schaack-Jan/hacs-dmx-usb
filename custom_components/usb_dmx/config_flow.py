@@ -46,18 +46,22 @@ from .const import (
     CONF_FIXTURE_NAME,
     CONF_FIXTURE_TYPE,
     CONF_INTERFACE_ID,
+    CONF_PIXEL_COUNT,
+    CONF_PIXEL_MODE,
     CONF_STARTUP_BEHAVIOR,
     DEFAULT_BLACKOUT_ON_SHUTDOWN,
     DEFAULT_STARTUP_BEHAVIOR,
     DMX_CHANNEL_COUNT,
     DMX_MAX_VALUE,
     DOMAIN,
+    LED_BAR_MAX_PIXELS,
     SUBENTRY_TYPE_FIXTURE,
 )
 from .models import (
     FixtureConfig,
     FixtureType,
     FixtureValidationError,
+    PixelMode,
     StartupBehavior,
     validate_fixtures,
 )
@@ -578,6 +582,8 @@ def _fixture_from_input(
             CONF_FIXTURE_ADDRESS: _integer_value(user_input.get(CONF_FIXTURE_ADDRESS)),
             CONF_FIXTURE_MINIMUM: _integer_value(user_input.get(CONF_FIXTURE_MINIMUM)),
             CONF_FIXTURE_MAXIMUM: _integer_value(user_input.get(CONF_FIXTURE_MAXIMUM)),
+            CONF_PIXEL_COUNT: _integer_value(user_input.get(CONF_PIXEL_COUNT, 1)),
+            CONF_PIXEL_MODE: user_input.get(CONF_PIXEL_MODE, PixelMode.RGB.value),
         }
     )
 
@@ -618,7 +624,7 @@ class _FixtureNameSelector(TextSelector):
 
 
 class FixtureSubentryFlow(ConfigSubentryFlow):
-    """Create and reconfigure one fixture config subentry."""
+    """Create and reconfigure one single- or multi-channel fixture."""
 
     def _schema(self, suggested_values: Mapping[str, Any] | None) -> vol.Schema:
         """Build the fixture form with current Home Assistant selectors."""
@@ -654,6 +660,21 @@ class FixtureSubentryFlow(ConfigSubentryFlow):
                         max=DMX_MAX_VALUE,
                         step=1,
                         mode=NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Optional(CONF_PIXEL_COUNT): _FixtureNumberSelector(
+                    NumberSelectorConfig(
+                        min=1,
+                        max=LED_BAR_MAX_PIXELS,
+                        step=1,
+                        mode=NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Optional(CONF_PIXEL_MODE): _FixtureTypeSelector(
+                    SelectSelectorConfig(
+                        options=[mode.value for mode in PixelMode],
+                        mode=SelectSelectorMode.DROPDOWN,
+                        translation_key="pixel_mode",
                     )
                 ),
             }
@@ -757,7 +778,10 @@ class FixtureSubentryFlow(ConfigSubentryFlow):
                             CONF_FIXTURE_ADDRESS,
                             CONF_FIXTURE_MINIMUM,
                             CONF_FIXTURE_MAXIMUM,
+                            CONF_PIXEL_COUNT,
+                            CONF_PIXEL_MODE,
                         )
+                        if key in fixture.as_mapping()
                     },
                 )
 

@@ -130,7 +130,9 @@ class UsbDmxEntity(Entity):
                 for subentry in self.entry.get_subentries_of_type(SUBENTRY_TYPE_FIXTURE)
             ):
                 return
-            await self.controller.async_set_channel(self.fixture.address, 0)
+            await self.controller.async_set_channels(
+                dict.fromkeys(self.fixture.occupied_addresses, 0)
+            )
 
     @callback
     def _async_handle_availability_update(
@@ -147,6 +149,38 @@ class UsbDmxEntity(Entity):
             self.async_write_ha_state()
 
 
+def _expected_fixture_roles(
+    entry_id: str, fixture: FixtureConfig
+) -> set[tuple[str, str]]:
+    """Describe exactly the active HA entities owned by one fixture."""
+    base = f"{entry_id}_{fixture.fixture_id}"
+    if fixture.fixture_type is FixtureType.DIMMER:
+        return {
+            ("light", base),
+            ("number", f"{base}_level"),
+            ("number", f"{base}_fade_time"),
+            ("select", f"{base}_fade_source"),
+        }
+    if fixture.fixture_type is FixtureType.RAW:
+        return {("number", base)}
+
+    expected = {("light", base), ("select", f"{base}_palette")}
+    if fixture.fixture_type is FixtureType.LED_BAR:
+        expected.update(
+            ("light", f"{base}_pixel_{pixel + 1}")
+            for pixel in range(fixture.pixel_count)
+        )
+    roles: tuple[str, ...] = ()
+    if fixture.fixture_type is FixtureType.RGBWAUV:
+        roles = ("white", "amber", "uv")
+    elif fixture.fixture_type is FixtureType.RGBW:
+        roles = ("white",)
+    elif fixture.fixture_type is FixtureType.DIMMER_RGBW_STROBE:
+        roles = ("white", "strobe")
+    expected.update(("number", f"{base}_{role}") for role in roles)
+    return expected
+
+
 @callback
 def cleanup_obsolete_entities(
     hass: HomeAssistant,
@@ -156,18 +190,7 @@ def cleanup_obsolete_entities(
     """Remove only obsolete native roles after a fixture changes type."""
     expected = {("number", f"{entry.entry_id}_global_fade_time")}
     for _, fixture in fixtures:
-        base = f"{entry.entry_id}_{fixture.fixture_id}"
-        if fixture.fixture_type is FixtureType.DIMMER:
-            expected.update(
-                {
-                    ("light", base),
-                    ("number", f"{base}_level"),
-                    ("number", f"{base}_fade_time"),
-                    ("select", f"{base}_fade_source"),
-                }
-            )
-        else:
-            expected.add(("number", base))
+        expected.update(_expected_fixture_roles(entry.entry_id, fixture))
     registry = er.async_get(hass)
     for registered in er.async_entries_for_config_entry(registry, entry.entry_id):
         if (

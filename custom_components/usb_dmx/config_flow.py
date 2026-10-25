@@ -661,12 +661,12 @@ class FixtureSubentryFlow(ConfigSubentryFlow):
                         mode=NumberSelectorMode.BOX,
                     )
                 ),
-                vol.Optional(CONF_PIXEL_COUNT, default=1): _FixtureNumberSelector(
+                vol.Optional(CONF_PIXEL_COUNT): _FixtureNumberSelector(
                     NumberSelectorConfig(
                         min=1, max=170, step=1, mode=NumberSelectorMode.BOX
                     )
                 ),
-                vol.Optional(CONF_PIXEL_MODE, default=PixelMode.RGB.value): _FixtureTypeSelector(
+                vol.Optional(CONF_PIXEL_MODE): _FixtureTypeSelector(
                     SelectSelectorConfig(
                         options=[mode.value for mode in PixelMode],
                         mode=SelectSelectorMode.DROPDOWN,

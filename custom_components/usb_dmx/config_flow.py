@@ -45,6 +45,8 @@ from .const import (
     CONF_FIXTURE_MINIMUM,
     CONF_FIXTURE_NAME,
     CONF_FIXTURE_TYPE,
+    CONF_PIXEL_COUNT,
+    CONF_PIXEL_MODE,
     CONF_INTERFACE_ID,
     CONF_STARTUP_BEHAVIOR,
     DEFAULT_BLACKOUT_ON_SHUTDOWN,
@@ -57,6 +59,7 @@ from .const import (
 from .models import (
     FixtureConfig,
     FixtureType,
+    PixelMode,
     FixtureValidationError,
     StartupBehavior,
     validate_fixtures,
@@ -578,6 +581,8 @@ def _fixture_from_input(
             CONF_FIXTURE_ADDRESS: _integer_value(user_input.get(CONF_FIXTURE_ADDRESS)),
             CONF_FIXTURE_MINIMUM: _integer_value(user_input.get(CONF_FIXTURE_MINIMUM)),
             CONF_FIXTURE_MAXIMUM: _integer_value(user_input.get(CONF_FIXTURE_MAXIMUM)),
+            CONF_PIXEL_COUNT: _integer_value(user_input.get(CONF_PIXEL_COUNT, 1)),
+            CONF_PIXEL_MODE: user_input.get(CONF_PIXEL_MODE, PixelMode.RGB.value),
         }
     )
 
@@ -654,6 +659,18 @@ class FixtureSubentryFlow(ConfigSubentryFlow):
                         max=DMX_MAX_VALUE,
                         step=1,
                         mode=NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Optional(CONF_PIXEL_COUNT, default=1): _FixtureNumberSelector(
+                    NumberSelectorConfig(
+                        min=1, max=170, step=1, mode=NumberSelectorMode.BOX
+                    )
+                ),
+                vol.Optional(CONF_PIXEL_MODE, default=PixelMode.RGB.value): _FixtureTypeSelector(
+                    SelectSelectorConfig(
+                        options=[mode.value for mode in PixelMode],
+                        mode=SelectSelectorMode.DROPDOWN,
+                        translation_key="pixel_mode",
                     )
                 ),
             }
@@ -757,7 +774,10 @@ class FixtureSubentryFlow(ConfigSubentryFlow):
                             CONF_FIXTURE_ADDRESS,
                             CONF_FIXTURE_MINIMUM,
                             CONF_FIXTURE_MAXIMUM,
+                            CONF_PIXEL_COUNT,
+                            CONF_PIXEL_MODE,
                         )
+                        if key in fixture.as_mapping()
                     },
                 )
 

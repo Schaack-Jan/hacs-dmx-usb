@@ -102,6 +102,23 @@ def _get_path(data: dict[str, Any], path: str) -> object:
         "selector.fixture_type.options.raw",
         "selector.fixture_type.options.rgb",
         "selector.fixture_type.options.rgbw",
+        "selector.fixture_type.options.rgbwauv",
+        "selector.fixture_type.options.dimmer_rgb",
+        "selector.fixture_type.options.dimmer_rgbw_strobe",
+        "selector.fixture_type.options.led_bar",
+        "selector.pixel_mode.options.rgb",
+        "selector.pixel_mode.options.rgbw",
+        "config_subentries.fixture.step.user.data.pixel_count",
+        "config_subentries.fixture.step.user.data.pixel_mode",
+        "config_subentries.fixture.error.invalid_pixel_count",
+        "config_subentries.fixture.error.invalid_pixel_mode",
+        "entity.number.white_channel.name",
+        "entity.number.amber_channel.name",
+        "entity.number.uv_channel.name",
+        "entity.number.strobe_channel.name",
+        "entity.select.palette.name",
+        "entity.select.palette.state.red",
+        "entity.select.palette.state.uv",
         "selector.startup_behavior.options.restore",
         "selector.startup_behavior.options.zero",
         "device.interface.name",
@@ -130,8 +147,12 @@ def test_translation_files_match_canonical_tree_and_placeholders() -> None:
         "level",
         "fade_time",
         "global_fade_time",
+        "white_channel",
+        "amber_channel",
+        "uv_channel",
+        "strobe_channel",
     }
-    assert set(english["entity"]["select"]) == {"fade_source"}
+    assert set(english["entity"]["select"]) == {"fade_source", "palette"}
     assert english["entity"]["number"]["level"]["name"] == "{fixture_name} Level"
     assert german["entity"]["number"]["level"]["name"] == "{fixture_name} Helligkeit"
     assert english["selector"]["device"]["options"]["manual_path"] == (

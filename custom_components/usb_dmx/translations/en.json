@@ -72,43 +72,53 @@
         "duplicate_name": "This fixture name is already in use.",
         "invalid_fixture": "Enter a valid fixture configuration.",
         "invalid_fade_time": "Fade time must be a finite number from 0 to 2 seconds.",
-        "invalid_fade_source": "Fade source must be global or individual."
+        "invalid_fade_source": "Fade source must be global or individual.",
+        "invalid_pixel_count": "Pixel count must be from 1 to 170 and fit within one 512-channel DMX universe.",
+        "invalid_pixel_mode": "Choose RGB or RGBW pixels."
       },
       "step": {
         "user": {
           "title": "Add a DMX fixture",
-          "description": "Create a dimmer, raw channel, RGB, or RGBW fixture.",
+          "description": "Configure a fixed-channel color light or an independently controllable RGB/RGBW pixel bar.",
           "data": {
             "type": "Fixture type",
             "name": "Name",
             "address": "DMX address",
             "minimum": "Minimum output",
-            "maximum": "Maximum output"
+            "maximum": "Maximum output",
+            "pixel_count": "LED bar pixel count",
+            "pixel_mode": "LED bar pixel mode"
           },
           "data_description": {
-            "type": "Dimmer and raw use one channel; RGB uses R/G/B and RGBW uses R/G/B/W consecutive channels.",
+            "type": "Choose the exact DMX personality and channel order from the fixture manual.",
             "name": "Name shown in Home Assistant.",
             "address": "First one-based DMX channel; the entire fixture must fit without overlapping others.",
             "minimum": "Lower output bound for dimmers (not used for RGB, RGBW, or raw).",
-            "maximum": "Upper output bound for dimmers (not used for RGB, RGBW, or raw)."
+            "maximum": "Upper output bound for dimmers (not used for RGB, RGBW, or raw).",
+            "pixel_count": "Number of individually addressable RGB or RGBW pixels (LED bars only).",
+            "pixel_mode": "Channel order repeated for each LED bar pixel; all pixels must fit the universe."
           }
         },
         "reconfigure": {
           "title": "Reconfigure the DMX fixture",
-          "description": "Change this fixture without changing its entity identity.",
+          "description": "Configure a fixed-channel color light or an independently controllable RGB/RGBW pixel bar.",
           "data": {
             "type": "Fixture type",
             "name": "Name",
             "address": "DMX address",
             "minimum": "Minimum output",
-            "maximum": "Maximum output"
+            "maximum": "Maximum output",
+            "pixel_count": "LED bar pixel count",
+            "pixel_mode": "LED bar pixel mode"
           },
           "data_description": {
-            "type": "Dimmer and raw use one channel; RGB uses R/G/B and RGBW uses R/G/B/W consecutive channels.",
+            "type": "Choose the exact DMX personality and channel order from the fixture manual.",
             "name": "Name shown in Home Assistant.",
             "address": "First one-based DMX channel; the entire fixture must fit without overlapping others.",
             "minimum": "Lower output bound for dimmers (not used for RGB, RGBW, or raw).",
-            "maximum": "Upper output bound for dimmers (not used for RGB, RGBW, or raw)."
+            "maximum": "Upper output bound for dimmers (not used for RGB, RGBW, or raw).",
+            "pixel_count": "Number of individually addressable RGB or RGBW pixels (LED bars only).",
+            "pixel_mode": "Channel order repeated for each LED bar pixel; all pixels must fit the universe."
           }
         }
       }
@@ -149,13 +159,23 @@
         "dimmer": "Dimmer light",
         "raw": "Raw channel",
         "rgb": "RGB light (3 channels)",
-        "rgbw": "RGBW light (4 channels)"
+        "rgbw": "RGBW light (4 channels)",
+        "rgbwauv": "RGBWAUV light (6 channels)",
+        "dimmer_rgb": "Dimmer + RGB (4 channels)",
+        "dimmer_rgbw_strobe": "Dimmer + RGBW + Strobe (6 channels)",
+        "led_bar": "Pixel LED bar (variable channels)"
       }
     },
     "startup_behavior": {
       "options": {
         "restore": "Restore saved light states",
         "zero": "Start at zero"
+      }
+    },
+    "pixel_mode": {
+      "options": {
+        "rgb": "RGB (3 channels per pixel)",
+        "rgbw": "RGBW (4 channels per pixel)"
       }
     }
   },
@@ -174,6 +194,18 @@
       },
       "global_fade_time": {
         "name": "Global fade time"
+      },
+      "white_channel": {
+        "name": "{fixture_name} White"
+      },
+      "amber_channel": {
+        "name": "{fixture_name} Amber"
+      },
+      "uv_channel": {
+        "name": "{fixture_name} UV"
+      },
+      "strobe_channel": {
+        "name": "{fixture_name} Strobe"
       }
     },
     "select": {
@@ -182,6 +214,25 @@
         "state": {
           "global": "Global",
           "individual": "Individual"
+        }
+      },
+      "palette": {
+        "name": "{fixture_name} Color palette",
+        "state": {
+          "custom": "Custom",
+          "red": "Red",
+          "orange": "Orange",
+          "yellow": "Yellow",
+          "green": "Green",
+          "cyan": "Cyan",
+          "blue": "Blue",
+          "purple": "Purple",
+          "magenta": "Magenta",
+          "pink": "Pink",
+          "warm_white": "Warm white",
+          "cool_white": "Cool white",
+          "amber": "Amber",
+          "uv": "UV"
         }
       }
     }

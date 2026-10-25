@@ -14,7 +14,7 @@ from homeassistant.components.light import (
     LightEntityFeature,
 )
 
-from homeassistant.const import STATE_OFF, STATE_ON
+from homeassistant.const import STATE_ON
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from . import UsbDmxConfigEntry
@@ -38,13 +38,13 @@ async def async_setup_entry(
     entry: UsbDmxConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Set up every dimmer fixture with its exact subentry owner."""
+    """Set up dimmers and native color lights with exact subentry owners."""
     fixtures = fixtures_from_entry(entry)
     get_fade_settings(hass, entry)
     lights = [
         (subentry, fixture)
         for subentry, fixture in fixtures
-        if fixture.fixture_type in (FixtureType.DIMMER, FixtureType.RGB, FixtureType.RGBW)
+        if fixture.fixture_type not in (FixtureType.RAW,)
     ]
     if not lights:
         return
@@ -58,6 +58,11 @@ async def async_setup_entry(
         )
         entity.device_entry = device
         async_add_entities([entity], config_subentry_id=subentry.subentry_id)
+        if fixture.fixture_type is FixtureType.LED_BAR:
+            for pixel in range(fixture.pixel_count):
+                child = UsbDmxColorLight(fixture, entry, pixel=pixel)
+                child.device_entry = device
+                async_add_entities([child], config_subentry_id=subentry.subentry_id)
 
 
 class UsbDmxDimmer(UsbDmxRestoringDimmer, LightEntity):
@@ -116,135 +121,118 @@ class UsbDmxDimmer(UsbDmxRestoringDimmer, LightEntity):
                 )
             await self.dimmer.async_turn_off(transition=kwargs.get(ATTR_TRANSITION))
 
-class UsbDmxColorLight(UsbDmxEntity, LightEntity, RestoreEntity):
-    """Control a fixed-order RGB or RGBW fixture as one Home Assistant light."""
 
-    def __init__(self, fixture: FixtureConfig, entry: UsbDmxConfigEntry) -> None:
-        """Keep logical color and brightness independent of the wire frame."""
+class UsbDmxColorLight(UsbDmxEntity, LightEntity, RestoreEntity):
+    """Expose an RGB or RGBW picker backed by a shared fixture color mixer."""
+
+    def __init__(
+        self,
+        fixture: FixtureConfig,
+        entry: UsbDmxConfigEntry,
+        *,
+        pixel: int | None = None,
+    ) -> None:
+        """Assign a stable ID to the group or one addressable LED bar pixel."""
         super().__init__(fixture, entry)
-        self._attr_color_mode = (
-            ColorMode.RGB if fixture.fixture_type is FixtureType.RGB else ColorMode.RGBW
-        )
+        self.color = entry.runtime_data.get_color(fixture)
+        self.pixel = pixel
+        self._attr_color_mode = ColorMode.RGBW if self.color.is_rgbw else ColorMode.RGB
         self._attr_supported_color_modes = {self._attr_color_mode}
-        self._color: tuple[int, ...] = (
-            (DMX_MAX_VALUE, DMX_MAX_VALUE, DMX_MAX_VALUE)
-            if fixture.fixture_type is FixtureType.RGB
-            else (DMX_MAX_VALUE, DMX_MAX_VALUE, DMX_MAX_VALUE, 0)
-        )
-        self._brightness = DMX_MAX_VALUE
-        self._is_on = False
+        if pixel is not None:
+            self._attr_unique_id += f"_pixel_{pixel + 1}"
+            self._attr_name = f"{fixture.name} Pixel {pixel + 1}"
 
     @property
     @override
     def is_on(self) -> bool:
-        """Report the logical commanded output state."""
-        return self._is_on
+        """Read the current mixer state, including pixel-only updates."""
+        return self.color.get_state(self.pixel)[2]
 
     @property
     @override
     def brightness(self) -> int | None:
-        """Keep the requested brightness available to the Home Assistant UI."""
-        return self._brightness if self._is_on else None
+        """Read the shared logical brightness when the requested pixel is on."""
+        _, brightness, enabled = self.color.get_state(self.pixel)
+        return brightness if enabled else None
 
     @property
     @override
     def rgb_color(self) -> tuple[int, int, int] | None:
-        """Expose the requested RGB color in RGB mode only."""
-        if self.fixture.fixture_type is FixtureType.RGB:
-            return self._color  # type: ignore[return-value]
-        return None
+        """Expose free RGB mixing through Home Assistant's native color wheel."""
+        if self.color.is_rgbw:
+            return None
+        channels = self.color.get_state(self.pixel)[0]
+        return channels[0], channels[1], channels[2]
 
     @property
     @override
     def rgbw_color(self) -> tuple[int, int, int, int] | None:
-        """Expose the requested RGBW color in RGBW mode only."""
-        if self.fixture.fixture_type is FixtureType.RGBW:
-            return self._color  # type: ignore[return-value]
-        return None
+        """Expose RGBW mixing, including the physical white channel."""
+        if not self.color.is_rgbw:
+            return None
+        channels = self.color.get_state(self.pixel)[0]
+        return channels[0], channels[1], channels[2], channels[3]
 
-    def _validated_color(self, value: object) -> tuple[int, ...]:
-        """Reject malformed input before changing any fixture channels."""
-        if (
-            not isinstance(value, (tuple, list))
-            or len(value) != self.fixture.channel_count
-            or any(type(channel) is not int or not 0 <= channel <= DMX_MAX_VALUE
-                   for channel in value)
-        ):
-            msg = "Color must contain exactly the fixture's 8-bit channels"
-            raise ValueError(msg)
-        return tuple(value)
-
+    @property
     @override
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        """Render all color channels as one atomic DMX frame."""
-        async with self._command_removal_lock:
-            if self._removing:
-                return
-            brightness = kwargs.get(ATTR_BRIGHTNESS, self._brightness)
-            if type(brightness) is not int or not 0 <= brightness <= DMX_MAX_VALUE:
-                msg = "Brightness must be an integer between 0 and 255"
-                raise ValueError(msg)
-            key = (
-                ATTR_RGB_COLOR
-                if self.fixture.fixture_type is FixtureType.RGB
-                else ATTR_RGBW_COLOR
-            )
-            other_key = (
-                ATTR_RGBW_COLOR if key == ATTR_RGB_COLOR else ATTR_RGB_COLOR
-            )
-            if other_key in kwargs:
-                msg = "Color data does not match the fixture's channel mode"
-                raise ValueError(msg)
-            color = (
-                self._validated_color(kwargs[key])
-                if key in kwargs
-                else self._color
-            )
-            values = {
-                address: round(channel * brightness / DMX_MAX_VALUE)
-                for address, channel in zip(
-                    self.fixture.occupied_addresses, color, strict=True
-                )
-            }
-            await self.controller.async_set_channels(values)
-            self._color = color
-            self._brightness = brightness
-            self._is_on = brightness > 0
-            self._async_write_state_if_added()
-
-    @override
-    async def async_turn_off(self, **kwargs: Any) -> None:
-        """Black out every owned channel but remember the next-on color."""
-        async with self._command_removal_lock:
-            if self._removing:
-                return
-            await self.controller.async_set_channels(
-                dict.fromkeys(self.fixture.occupied_addresses, 0)
-            )
-            self._is_on = False
-            self._async_write_state_if_added()
+    def extra_state_attributes(self) -> dict[str, int] | None:
+        """Publish separately adjustable W/A/UV/Strobe settings on the group."""
+        if self.pixel is not None:
+            return None
+        return {role: self.color.extra(role) for role in self.color.extra_roles()}
 
     @override
     async def async_added_to_hass(self) -> None:
-        """Restore the last valid color and optionally its output at startup."""
+        """Share mixer updates; only the fixture group restores saved state."""
         await super().async_added_to_hass()
+        self.async_on_remove(self.color.add_listener(self._async_write_state_if_added))
+        if self.pixel is not None:
+            return
         if self.entry.runtime_data.startup_behavior is not StartupBehavior.RESTORE:
             return
-        state = await self.async_get_last_state()
-        if state is None or state.state not in (STATE_ON, STATE_OFF):
+        previous = await self.async_get_last_state()
+        if previous is None or previous.state != STATE_ON:
             return
-        key = (
-            ATTR_RGB_COLOR
-            if self.fixture.fixture_type is FixtureType.RGB
-            else ATTR_RGBW_COLOR
-        )
+        key = ATTR_RGBW_COLOR if self.color.is_rgbw else ATTR_RGB_COLOR
+        stored_color = previous.attributes.get(key)
+        stored_level = previous.attributes.get(ATTR_BRIGHTNESS, 255)
+        if stored_color is None or type(stored_level) is not int:
+            return
         try:
-            if (saved_color := state.attributes.get(key)) is not None:
-                self._color = self._validated_color(saved_color)
-            brightness = state.attributes.get(ATTR_BRIGHTNESS)
-            if type(brightness) is int and 1 <= brightness <= DMX_MAX_VALUE:
-                self._brightness = brightness
+            await self.color.restore(
+                stored_color,
+                stored_level,
+                {
+                    role: previous.attributes.get(role, 0)
+                    for role in self.color.extra_roles()
+                    if role != "strobe" and role in previous.attributes
+                },
+            )
         except ValueError:
             return
-        if state.state == STATE_ON:
-            await self.async_turn_on()
+
+    @override
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Change color and brightness together without partial DMX writes."""
+        if self._removing:
+            return
+        key = ATTR_RGBW_COLOR if self.color.is_rgbw else ATTR_RGB_COLOR
+        other_key = ATTR_RGB_COLOR if self.color.is_rgbw else ATTR_RGBW_COLOR
+        if other_key in kwargs:
+            raise ValueError("Color payload does not match the fixture mode")
+        if ATTR_TRANSITION in kwargs and kwargs[ATTR_TRANSITION] != 0:
+            raise ValueError("Color transitions are not yet supported")
+        await self.color.set_color(
+            color=kwargs.get(key),
+            brightness=kwargs.get(ATTR_BRIGHTNESS),
+            pixel=self.pixel,
+        )
+
+    @override
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Send zero to this group or just the selected bar pixel."""
+        if self._removing:
+            return
+        if ATTR_TRANSITION in kwargs and kwargs[ATTR_TRANSITION] != 0:
+            raise ValueError("Color transitions are not yet supported")
+        await self.color.turn_off(pixel=self.pixel)

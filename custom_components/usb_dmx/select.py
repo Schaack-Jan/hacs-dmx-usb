@@ -10,6 +10,7 @@ from homeassistant.const import EntityCategory
 from . import UsbDmxConfigEntry
 from .entity import (
     UsbDmxDimmerEntity,
+    UsbDmxEntity,
     fixtures_from_entry,
     get_fade_settings,
     get_interface_device,
@@ -33,8 +34,12 @@ async def async_setup_entry(
     for subentry, fixture in fixtures:
         if fixture.fixture_type is FixtureType.DIMMER:
             entity = UsbDmxFadeSource(fixture, entry)
-            entity.device_entry = device
-            async_add_entities([entity], config_subentry_id=subentry.subentry_id)
+        elif fixture.fixture_type is not FixtureType.RAW:
+            entity = UsbDmxColorPalette(fixture, entry)
+        else:
+            continue
+        entity.device_entry = device
+        async_add_entities([entity], config_subentry_id=subentry.subentry_id)
 
 
 class UsbDmxFadeSource(UsbDmxDimmerEntity, SelectEntity):
@@ -76,3 +81,36 @@ class UsbDmxFadeSource(UsbDmxDimmerEntity, SelectEntity):
         """Persist a validated source under common removal coordination."""
         if not self._removing:
             await self.dimmer.async_set_fade_source(option)
+
+class UsbDmxColorPalette(UsbDmxEntity, SelectEntity):
+    """Provide reusable colors without replacing free color-wheel mixing."""
+
+    _attr_translation_key = "palette"
+    _attr_has_entity_name = True
+
+    def __init__(self, fixture: FixtureConfig, entry: UsbDmxConfigEntry) -> None:
+        """Keep one palette for the entire fixture, including grouped pixel bars."""
+        super().__init__(fixture, entry)
+        self.color = entry.runtime_data.get_color(fixture)
+        self._attr_options = self.color.palette_options
+        self._attr_unique_id += "_palette"
+        self._attr_translation_placeholders = {"fixture_name": fixture.name}
+        del self._attr_name
+
+    @property
+    @override
+    def current_option(self) -> str:
+        """Return 'custom' when a user adjusts any individual color component."""
+        return self.color.palette
+
+    @override
+    async def async_added_to_hass(self) -> None:
+        """Keep the select state synchronized with manual mixer commands."""
+        await super().async_added_to_hass()
+        self.async_on_remove(self.color.add_listener(self._async_write_state_if_added))
+
+    @override
+    async def async_select_option(self, option: str) -> None:
+        """Apply one predefined color using a single complete DMX frame."""
+        if not self._removing:
+            await self.color.apply_palette(option)

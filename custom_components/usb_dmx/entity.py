@@ -172,6 +172,19 @@ def cleanup_obsolete_entities(
             expected.add(("number", base))
         else:
             expected.add(("light", base))
+            expected.add(("select", f"{base}_palette"))
+            if fixture.fixture_type is FixtureType.LED_BAR:
+                for pixel in range(fixture.pixel_count):
+                    expected.add(("light", f"{base}_pixel_{pixel + 1}"))
+            roles: tuple[str, ...] = ()
+            if fixture.fixture_type is FixtureType.RGBWAUV:
+                roles = ("white", "amber", "uv")
+            elif fixture.fixture_type is FixtureType.RGBW:
+                roles = ("white",)
+            elif fixture.fixture_type is FixtureType.DIMMER_RGBW_STROBE:
+                roles = ("white", "strobe")
+            for role in roles:
+                expected.add(("number", f"{base}_{role}"))
     registry = er.async_get(hass)
     for registered in er.async_entries_for_config_entry(registry, entry.entry_id):
         if (

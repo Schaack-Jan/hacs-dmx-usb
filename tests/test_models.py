@@ -179,7 +179,7 @@ def test_domain_models_are_frozen_and_slotted() -> None:
 
 def test_enum_storage_values_are_stable() -> None:
     """Persisted enum values match the config and options schema."""
-    assert [member.value for member in FixtureType] == ["dimmer", "raw", "rgb", "rgbw"]
+    assert [member.value for member in FixtureType] == ["dimmer", "raw", "rgb", "rgbw", "rgbwauv", "dimmer_rgb", "dimmer_rgbw_strobe", "led_bar"]
     assert [member.value for member in StartupBehavior] == ["restore", "zero"]
 
 

@@ -345,7 +345,7 @@ async def test_create_rejects_primitive_field_types_with_stable_form_error(
         (
             (),
             {
-                FIXTURE_TYPE: "rgb",
+                FIXTURE_TYPE: "unsupported",
                 FIXTURE_NAME: "Unknown",
                 FIXTURE_ADDRESS: 8,
                 FIXTURE_MINIMUM: 0,

@@ -17,6 +17,8 @@ from .const import (
     CONF_FIXTURE_MINIMUM,
     CONF_FIXTURE_NAME,
     CONF_FIXTURE_TYPE,
+    CONF_PIXEL_COUNT,
+    CONF_PIXEL_MODE,
     DMX_CHANNEL_COUNT,
     DMX_MAX_VALUE,
     FADE_TIME_MAX,
@@ -30,6 +32,17 @@ class FixtureType(StrEnum):
 
     DIMMER = "dimmer"
     RAW = "raw"
+    RGB = "rgb"
+    RGBW = "rgbw"
+    RGBWAUV = "rgbwauv"
+    DIMMER_RGB = "dimmer_rgb"
+    DIMMER_RGBW_STROBE = "dimmer_rgbw_strobe"
+    LED_BAR = "led_bar"
+
+
+class PixelMode(StrEnum):
+    """Pixel channel order for directly-addressable LED bars."""
+
     RGB = "rgb"
     RGBW = "rgbw"
 
@@ -90,15 +103,22 @@ class FixtureConfig:
     maximum: int
     fade_time: float = 0.0
     fade_source: FadeSource = FadeSource.GLOBAL
+    pixel_count: int = 1
+    pixel_mode: PixelMode = PixelMode.RGB
 
     @property
     def channel_count(self) -> int:
         """Return the number of consecutive DMX slots consumed by the fixture."""
+        if self.fixture_type is FixtureType.LED_BAR:
+            return self.pixel_count * (3 if self.pixel_mode is PixelMode.RGB else 4)
         return {
             FixtureType.DIMMER: 1,
             FixtureType.RAW: 1,
             FixtureType.RGB: 3,
             FixtureType.RGBW: 4,
+            FixtureType.RGBWAUV: 6,
+            FixtureType.DIMMER_RGB: 4,
+            FixtureType.DIMMER_RGBW_STROBE: 6,
         }[self.fixture_type]
 
     @property
@@ -109,6 +129,16 @@ class FixtureConfig:
     @classmethod
     def from_mapping(cls, data: Mapping[str, object]) -> FixtureConfig:
         """Create and validate a fixture from its JSON-safe representation."""
+        pixel_count = data.get(CONF_PIXEL_COUNT, 1)
+        pixel_mode = data.get(CONF_PIXEL_MODE, PixelMode.RGB)
+        if type(pixel_count) is not int or not 1 <= pixel_count <= 170:
+            raise FixtureValidationError("invalid_pixel_count")
+        try:
+            if not isinstance(pixel_mode, str):
+                raise TypeError
+            pixel_mode = PixelMode(pixel_mode)
+        except (TypeError, ValueError) as err:
+            raise FixtureValidationError("invalid_pixel_mode") from err
         fade_time = validate_fade_time(data.get(CONF_FADE_TIME, 0.0))
         fade_source = validate_fade_source(
             data.get(CONF_FADE_SOURCE, FadeSource.GLOBAL)
@@ -137,6 +167,8 @@ class FixtureConfig:
                 maximum=maximum,
                 fade_time=fade_time,
                 fade_source=fade_source,
+                pixel_count=pixel_count,
+                pixel_mode=pixel_mode,
             )
         except (KeyError, TypeError, ValueError) as err:
             raise FixtureValidationError("invalid_fixture") from err
@@ -154,6 +186,9 @@ class FixtureConfig:
             CONF_FIXTURE_MINIMUM: self.minimum,
             CONF_FIXTURE_MAXIMUM: self.maximum,
         }
+        if self.fixture_type is FixtureType.LED_BAR:
+            data[CONF_PIXEL_COUNT] = self.pixel_count
+            data[CONF_PIXEL_MODE] = self.pixel_mode.value
         if self.fixture_type is FixtureType.DIMMER:
             data[CONF_FADE_TIME] = self.fade_time
             data[CONF_FADE_SOURCE] = self.fade_source.value
@@ -216,6 +251,14 @@ def validate_fixtures(fixtures: Collection[FixtureConfig]) -> None:
             or not 0 <= fixture.minimum <= fixture.maximum <= DMX_MAX_VALUE
         ):
             raise FixtureValidationError("invalid_range")
+
+        if (
+            type(fixture.pixel_count) is not int
+            or not 1 <= fixture.pixel_count <= 170
+        ):
+            raise FixtureValidationError("invalid_pixel_count")
+        if not isinstance(fixture.pixel_mode, PixelMode):
+            raise FixtureValidationError("invalid_pixel_mode")
 
         validate_fade_time(fixture.fade_time)
         validate_fade_source(fixture.fade_source)

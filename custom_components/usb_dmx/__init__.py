@@ -30,6 +30,7 @@ from .const import (
     DEFAULT_STARTUP_BEHAVIOR,
     DOMAIN,
 )
+from .color import ColorRuntime
 from .controller import DmxController
 from .dimmer import DimmerRuntime
 from .models import FixtureConfig, FixtureType, StartupBehavior
@@ -50,6 +51,7 @@ class UsbDmxRuntime:
     startup_behavior: StartupBehavior
     settings: FadeSettings | None = None
     dimmers: dict[str, DimmerRuntime] = field(default_factory=dict)
+    colors: dict[str, ColorRuntime] = field(default_factory=dict)
 
     def get_dimmer(self, fixture: FixtureConfig) -> DimmerRuntime:
         """Get the common fixture runtime, including manually constructed entries."""
@@ -58,6 +60,12 @@ class UsbDmxRuntime:
                 self.controller, fixture, self.settings
             )
         return self.dimmers[fixture.fixture_id]
+
+    def get_color(self, fixture: FixtureConfig) -> ColorRuntime:
+        """Share one color mixer between its light, palette and faders."""
+        if fixture.fixture_id not in self.colors:
+            self.colors[fixture.fixture_id] = ColorRuntime(self.controller, fixture)
+        return self.colors[fixture.fixture_id]
 
 
 type UsbDmxConfigEntry = ConfigEntry[UsbDmxRuntime]

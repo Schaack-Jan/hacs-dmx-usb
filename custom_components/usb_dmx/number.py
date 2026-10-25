@@ -273,7 +273,7 @@ class UsbDmxColorChannel(UsbDmxEntity, NumberEntity):
             return
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             msg = "Channel value must be an integer from 0 to 255"
-            raise ValueError(msg)
+            raise TypeError(msg)
         if not math.isfinite(value) or not float(value).is_integer():
             msg = "Channel value must be an integer from 0 to 255"
             raise ValueError(msg)

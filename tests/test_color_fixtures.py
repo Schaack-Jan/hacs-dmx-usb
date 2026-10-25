@@ -100,7 +100,7 @@ async def test_controller_color_update_is_one_frame_and_validated() -> None:
     await controller.async_set_channels({20: 255, 21: 128, 22: 64})
     assert len(backend.frames) == 1
     assert backend.frames[-1][19:22] == bytes((255, 128, 64))
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="DMX address"):
         await controller.async_set_channels({20: 0, 513: 255})
     assert len(backend.frames) == 1
     await controller.async_set_channels({20: 0, 21: 0, 22: 0})
@@ -165,9 +165,9 @@ async def test_color_light_rejects_invalid_color_without_writing(
     await controller.async_start()
     entry.runtime_data = UsbDmxRuntime(controller, backend, StartupBehavior.ZERO)
     light = UsbDmxColorLight(fixture, entry)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="DMX channel value"):
         await light.async_turn_on(rgb_color=(255, 256, 0))
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Color payload"):
         await light.async_turn_on(rgbw_color=(255, 255, 255, 0))
     assert backend.frames == []
     await controller.async_stop()

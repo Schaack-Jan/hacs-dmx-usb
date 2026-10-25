@@ -1,17 +1,18 @@
 name: Hassfest
 
+# No push, daily schedule, or manual dispatch triggers.
 "on":
-  push:
   pull_request:
-  schedule:
-    - cron: "0 0 * * *"
-  workflow_dispatch:
+    types: [opened, ready_for_review]
+  release:
+    types: [published]
 
 permissions:
   contents: read
 
 jobs:
   hassfest:
+    if: github.event_name == 'release' || github.event.pull_request.draft == false
     name: Validate with hassfest
     runs-on: ubuntu-latest
     timeout-minutes: 30

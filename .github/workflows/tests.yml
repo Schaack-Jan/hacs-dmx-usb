@@ -1,15 +1,19 @@
 name: Tests
 
+# Branch pushes and later PR commits must not trigger CI.
 "on":
-  push:
   pull_request:
-  workflow_dispatch:
+    types: [opened, ready_for_review]
+  release:
+    types: [published]
 
 permissions:
   contents: read
 
 jobs:
   tests:
+    # A draft PR created with `opened` does not start a runner.
+    if: github.event_name == 'release' || github.event.pull_request.draft == false
     name: Pytest and Ruff
     runs-on: ubuntu-latest
     timeout-minutes: 30

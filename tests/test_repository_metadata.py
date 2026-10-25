@@ -95,8 +95,7 @@ def _assert_review_ready_or_published_release_only(workflow: dict[str, Any]) -> 
     }
     for job in workflow["jobs"].values():
         assert job["if"] == (
-            "github.event_name == 'release' || "
-            "github.event.pull_request.draft == false"
+            "github.event_name == 'release' || github.event.pull_request.draft == false"
         )
 
 
